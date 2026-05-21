@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CurrentSeasonDownloads } from "@/components/CurrentSeasonDownloads";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -57,6 +58,8 @@ export default async function HomePage() {
           </Link>
         ))}
       </section>
+
+      <CurrentSeasonDownloads />
 
       <section className="mx-auto grid max-w-7xl gap-6 px-5 pb-12 lg:grid-cols-3">
         <ScheduleCard title="NBA 今日 / 即將比賽" games={data.nbaUpcoming} />

@@ -138,11 +138,22 @@ npm run import:games -- path/to/real-api-snapshot.json
 - `GET /api/teams?league=MLB`
 - `GET /api/games/upcoming?league=NBA`
 - `GET /api/games/upcoming?league=MLB`
+- `GET /api/export/current-season?league=NBA&format=csv`
+- `GET /api/export/current-season?league=MLB&format=xlsx`
 - `GET /api/matchup/summary`
 - `GET /api/players/stats`
 - `GET /api/export?type=matchup&format=csv`
 - `GET /api/export?type=players&format=xlsx`
 - `GET /api/export?type=games&format=json`
+
+## 本季已完賽下載
+
+首頁提供「本季已完賽資料下載」。這個功能不依賴資料庫已有比賽資料，會即時從資料來源抓取：
+
+- NBA：NBA.com Stats API `leaguegamelog`
+- MLB：MLB StatsAPI `schedule?hydrate=linescore`
+
+MLB 會包含 final score、1-9 局 regulation score、是否延長賽。NBA `leaguegamelog` 只提供 final score；不含延長賽比分需另抓逐場 period scoring。
 
 ## 延長賽邏輯
 

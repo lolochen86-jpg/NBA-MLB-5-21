@@ -1,5 +1,6 @@
 import { apiError, parseBoolean, requiredParam } from "@/lib/http";
 import { csvResponse, flattenMatchupExport, jsonResponse, xlsxResponse } from "@/lib/export";
+import { fetchCurrentSeasonGames } from "@/lib/current-season";
 import { getMatchupSummary } from "@/lib/matchup";
 import { prisma } from "@/lib/prisma";
 
@@ -26,7 +27,14 @@ export async function GET(request: Request) {
 
     if (type === "games") {
       const league = requiredParam(url, "league").toUpperCase();
-      const rows = await exportGames(league);
+      let rows: Record<string, unknown>[] = await exportGames(league);
+      if (!rows.length) {
+        rows = await fetchCurrentSeasonGames({
+          league,
+          season: url.searchParams.get("season"),
+          seasonType: url.searchParams.get("seasonType") ?? "Regular Season"
+        });
+      }
       return send(format, rows, `${league.toLowerCase()}-games-${Date.now()}`, {
         league,
         type,
