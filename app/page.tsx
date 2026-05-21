@@ -3,22 +3,23 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+type UpcomingGame = {
+  id: number;
+  gameDate: Date;
+  homeTeam: { abbreviation: string };
+  awayTeam: { abbreviation: string };
+};
+
+type SyncRow = {
+  id: number;
+  league: string;
+  entity: string;
+  status: string;
+  fetchedAt: Date;
+};
+
 export default async function HomePage() {
-  const [nbaUpcoming, mlbUpcoming, syncRows] = await Promise.all([
-    prisma.game.findMany({
-      where: { league: "NBA", gameDate: { gte: new Date() }, status: { not: "FINAL" } },
-      include: { homeTeam: true, awayTeam: true },
-      orderBy: { gameDate: "asc" },
-      take: 5
-    }),
-    prisma.game.findMany({
-      where: { league: "MLB", gameDate: { gte: new Date() }, status: { not: "FINAL" } },
-      include: { homeTeam: true, awayTeam: true },
-      orderBy: { gameDate: "asc" },
-      take: 5
-    }),
-    prisma.sourceSync.findMany({ orderBy: { fetchedAt: "desc" }, take: 6 })
-  ]);
+  const data = await loadDashboardData();
 
   return (
     <main className="min-h-screen">
@@ -29,8 +30,13 @@ export default async function HomePage() {
             NBA / MLB 對戰數據下載中心
           </h1>
           <p className="mt-4 max-w-3xl text-xl leading-8 text-slate-600">
-            即時整理球隊近況、球員數據、得失分平均。所有資料皆來自 API 或本地 SQLite 同步快取，抓不到就不編造。
+            即時整理球隊近況、球員數據、得失分平均。所有資料皆來自 API 或資料庫同步快取，抓不到就不編造。
           </p>
+          {data.error ? (
+            <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-base font-bold text-amber-800">
+              資料來源目前無法取得
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -41,7 +47,11 @@ export default async function HomePage() {
           ["球員數據", "/players", "NBA / MLB 分頁查詢"],
           ["下載中心", "/matchup?league=NBA", "CSV、Excel、JSON"]
         ].map(([title, href, text]) => (
-          <Link key={title} href={href} className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+          <Link
+            key={title}
+            href={href}
+            className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
             <div className="text-xl font-black text-ink">{title}</div>
             <div className="mt-3 text-base text-slate-600">{text}</div>
           </Link>
@@ -49,17 +59,21 @@ export default async function HomePage() {
       </section>
 
       <section className="mx-auto grid max-w-7xl gap-6 px-5 pb-12 lg:grid-cols-3">
-        <ScheduleCard title="NBA 今日 / 即將比賽" games={nbaUpcoming} />
-        <ScheduleCard title="MLB 今日 / 即將比賽" games={mlbUpcoming} />
+        <ScheduleCard title="NBA 今日 / 即將比賽" games={data.nbaUpcoming} />
+        <ScheduleCard title="MLB 今日 / 即將比賽" games={data.mlbUpcoming} />
         <div className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm">
           <h2 className="text-2xl font-black text-ink">資料同步狀態</h2>
           <div className="mt-4 space-y-3">
-            {syncRows.length ? (
-              syncRows.map((row) => (
+            {data.syncRows.length ? (
+              data.syncRows.map((row) => (
                 <div key={row.id} className="rounded-md bg-skySoft p-4">
-                  <div className="font-bold">{row.league} {row.entity}</div>
+                  <div className="font-bold">
+                    {row.league} {row.entity}
+                  </div>
                   <div className="text-sm text-slate-600">{row.status}</div>
-                  <div className="numeric text-sm text-slate-500">最後更新時間：{row.fetchedAt.toLocaleString("zh-TW")}</div>
+                  <div className="numeric text-sm text-slate-500">
+                    最後更新時間：{row.fetchedAt.toLocaleString("zh-TW")}
+                  </div>
                 </div>
               ))
             ) : (
@@ -72,7 +86,37 @@ export default async function HomePage() {
   );
 }
 
-function ScheduleCard({ title, games }: { title: string; games: any[] }) {
+async function loadDashboardData(): Promise<{
+  nbaUpcoming: UpcomingGame[];
+  mlbUpcoming: UpcomingGame[];
+  syncRows: SyncRow[];
+  error: boolean;
+}> {
+  try {
+    const [nbaUpcoming, mlbUpcoming, syncRows] = await Promise.all([
+      prisma.game.findMany({
+        where: { league: "NBA", gameDate: { gte: new Date() }, status: { not: "FINAL" } },
+        include: { homeTeam: true, awayTeam: true },
+        orderBy: { gameDate: "asc" },
+        take: 5
+      }),
+      prisma.game.findMany({
+        where: { league: "MLB", gameDate: { gte: new Date() }, status: { not: "FINAL" } },
+        include: { homeTeam: true, awayTeam: true },
+        orderBy: { gameDate: "asc" },
+        take: 5
+      }),
+      prisma.sourceSync.findMany({ orderBy: { fetchedAt: "desc" }, take: 6 })
+    ]);
+
+    return { nbaUpcoming, mlbUpcoming, syncRows, error: false };
+  } catch (error) {
+    console.error("Dashboard data unavailable", error);
+    return { nbaUpcoming: [], mlbUpcoming: [], syncRows: [], error: true };
+  }
+}
+
+function ScheduleCard({ title, games }: { title: string; games: UpcomingGame[] }) {
   return (
     <div className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm">
       <h2 className="text-2xl font-black text-ink">{title}</h2>
@@ -80,8 +124,12 @@ function ScheduleCard({ title, games }: { title: string; games: any[] }) {
         {games.length ? (
           games.map((game) => (
             <div key={game.id} className="rounded-md border border-slate-100 p-4">
-              <div className="font-bold">{game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}</div>
-              <div className="numeric text-sm text-slate-500">{game.gameDate.toLocaleString("zh-TW")}</div>
+              <div className="font-bold">
+                {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
+              </div>
+              <div className="numeric text-sm text-slate-500">
+                {game.gameDate.toLocaleString("zh-TW")}
+              </div>
             </div>
           ))
         ) : (

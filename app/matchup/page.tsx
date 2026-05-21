@@ -5,11 +5,13 @@ import { getMatchupSummary } from "@/lib/matchup";
 import { prisma } from "@/lib/prisma";
 
 type Search = Record<string, string | string[] | undefined>;
+type TeamOption = { id: number; abbreviation: string; name: string };
 
 export default async function MatchupPage({ searchParams }: { searchParams: Promise<Search> }) {
   const params = await searchParams;
   const league = String(params.league ?? "NBA").toUpperCase();
-  const teams = await prisma.team.findMany({ where: { league }, orderBy: [{ city: "asc" }, { name: "asc" }] });
+  const teamsResult = await loadTeams(league);
+  const teams = teamsResult.teams;
   const homeTeamId = Number(params.homeTeamId ?? teams[0]?.id ?? 0);
   const awayTeamId = Number(params.awayTeamId ?? teams[1]?.id ?? 0);
   const season = String(params.season ?? (league === "NBA" ? "2025-26" : "2026"));
@@ -19,9 +21,9 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
   const includeOvertime = String(params.includeOvertime ?? "true") === "true";
   const splitHomeAway = String(params.splitHomeAway ?? "false") === "true";
 
-  const summary =
+  const summary: any =
     homeTeamId && awayTeamId
-      ? await getMatchupSummary({
+      ? await getSafeSummary({
           league,
           homeTeamId,
           awayTeamId,
@@ -50,11 +52,15 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
     <main className="mx-auto min-h-screen max-w-7xl px-5 py-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <Link href="/" className="text-base font-bold text-blue-700">首頁</Link>
+          <Link href="/" className="text-base font-bold text-blue-700">
+            首頁
+          </Link>
           <h1 className="mt-2 text-4xl font-black text-ink">{league} 對戰分析</h1>
-          <p className="mt-2 text-lg text-slate-600">每個數字都來自本地資料庫同步快取；沒有資料時不會產生假結果。</p>
+          <p className="mt-2 text-lg text-slate-600">
+            每個數字都來自資料庫同步快取；沒有資料時不會產生假結果。
+          </p>
         </div>
-        {summary ? <DownloadButtons queryString={query.toString()} /> : null}
+        {summary && !summary.error ? <DownloadButtons queryString={query.toString()} /> : null}
       </div>
 
       <form className="grid gap-4 rounded-lg border border-sky-100 bg-white p-5 shadow-sm lg:grid-cols-4" action="/matchup">
@@ -72,11 +78,15 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
         </div>
       </form>
 
-      {!teams.length ? (
+      {teamsResult.error ? (
+        <Notice text="資料來源目前無法取得" />
+      ) : !teams.length ? (
         <Notice text="請先同步資料" />
+      ) : summary?.error ? (
+        <Notice text="資料來源目前無法取得" />
       ) : summary ? (
         <section className="mt-6 space-y-6">
-          {(summary.homeTeamSummary.unavailableReason || summary.awayTeamSummary.unavailableReason) ? (
+          {summary.homeTeamSummary.unavailableReason || summary.awayTeamSummary.unavailableReason ? (
             <Notice text={summary.homeTeamSummary.unavailableReason ?? summary.awayTeamSummary.unavailableReason ?? "資料來源目前無法取得"} />
           ) : null}
 
@@ -97,6 +107,29 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
   );
 }
 
+async function loadTeams(league: string): Promise<{ teams: TeamOption[]; error: boolean }> {
+  try {
+    const teams = await prisma.team.findMany({
+      where: { league },
+      orderBy: [{ city: "asc" }, { name: "asc" }],
+      select: { id: true, abbreviation: true, name: true }
+    });
+    return { teams, error: false };
+  } catch (error) {
+    console.error("Teams unavailable", error);
+    return { teams: [], error: true };
+  }
+}
+
+async function getSafeSummary(input: Parameters<typeof getMatchupSummary>[0]) {
+  try {
+    return { ...(await getMatchupSummary(input)), error: false };
+  } catch (error) {
+    console.error("Matchup summary unavailable", error);
+    return { error: true };
+  }
+}
+
 function TextInput({ name, label, value }: { name: string; label: string; value: string }) {
   return (
     <label className="block">
@@ -112,7 +145,9 @@ function Select({ name, label, value, options }: { name: string; label: string; 
       <span className="text-sm font-bold text-slate-600">{label}</span>
       <select className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-3 text-lg" name={name} defaultValue={value}>
         {options.map(([optionValue, text]) => (
-          <option key={optionValue} value={optionValue}>{text}</option>
+          <option key={optionValue} value={optionValue}>
+            {text}
+          </option>
         ))}
       </select>
     </label>
@@ -124,7 +159,13 @@ function SummaryTable({ rows }: { rows: any[] }) {
     <div className="overflow-x-auto rounded-lg border border-sky-100 bg-white shadow-sm">
       <table className="w-full min-w-[920px] text-left text-base">
         <thead className="bg-skySoft text-slate-700">
-          <tr>{["球隊", "場數", "平均得分", "平均失分", "平均分差", "最高", "最低", "勝敗", "主場平均", "客場平均", "含延長賽", "最後更新時間"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr>
+          <tr>
+            {["球隊", "場數", "平均得分", "平均失分", "平均分差", "最高", "最低", "勝敗", "主場平均", "客場平均", "含延長賽", "最後更新時間"].map((h) => (
+              <th key={h} className="px-4 py-3">
+                {h}
+              </th>
+            ))}
+          </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
@@ -136,7 +177,9 @@ function SummaryTable({ rows }: { rows: any[] }) {
               <td className="numeric px-4 py-3 text-right">{fmt(row.averageMargin)}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.highestScored)}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.lowestScored)}</td>
-              <td className="numeric px-4 py-3 text-right">{row.wins}-{row.losses}</td>
+              <td className="numeric px-4 py-3 text-right">
+                {row.wins}-{row.losses}
+              </td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.homeAverageScored)}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.awayAverageScored)}</td>
               <td className="px-4 py-3">{row.includeOvertime ? "是" : "否"}</td>
@@ -154,24 +197,36 @@ function GameLogTable({ rows }: { rows: any[] }) {
     <div className="overflow-x-auto rounded-lg border border-sky-100 bg-white shadow-sm">
       <table className="w-full min-w-[780px] text-left text-base">
         <thead className="bg-skySoft text-slate-700">
-          <tr>{["日期", "球隊", "對手", "主客", "得分", "失分", "分差", "勝敗", "含延長", "資料來源"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr>
+          <tr>
+            {["日期", "球隊", "對手", "主客", "得分", "失分", "分差", "勝敗", "含延長", "資料來源"].map((h) => (
+              <th key={h} className="px-4 py-3">
+                {h}
+              </th>
+            ))}
+          </tr>
         </thead>
         <tbody>
-          {rows.length ? rows.map((row) => (
-            <tr key={`${row.gameId}-${row.team}`} className="border-t border-slate-100">
-              <td className="numeric px-4 py-3">{new Date(row.date).toLocaleDateString("zh-TW")}</td>
-              <td className="px-4 py-3 font-bold">{row.team}</td>
-              <td className="px-4 py-3">{row.opponent}</td>
-              <td className="px-4 py-3">{row.homeAway}</td>
-              <td className="numeric px-4 py-3 text-right">{row.scored}</td>
-              <td className="numeric px-4 py-3 text-right">{row.allowed}</td>
-              <td className="numeric px-4 py-3 text-right">{row.margin}</td>
-              <td className="px-4 py-3">{row.result}</td>
-              <td className="px-4 py-3">{row.wentOvertime ? "是" : "否"}</td>
-              <td className="px-4 py-3">{row.source}</td>
+          {rows.length ? (
+            rows.map((row) => (
+              <tr key={`${row.gameId}-${row.team}`} className="border-t border-slate-100">
+                <td className="numeric px-4 py-3">{new Date(row.date).toLocaleDateString("zh-TW")}</td>
+                <td className="px-4 py-3 font-bold">{row.team}</td>
+                <td className="px-4 py-3">{row.opponent}</td>
+                <td className="px-4 py-3">{row.homeAway}</td>
+                <td className="numeric px-4 py-3 text-right">{row.scored}</td>
+                <td className="numeric px-4 py-3 text-right">{row.allowed}</td>
+                <td className="numeric px-4 py-3 text-right">{row.margin}</td>
+                <td className="px-4 py-3">{row.result}</td>
+                <td className="px-4 py-3">{row.wentOvertime ? "是" : "否"}</td>
+                <td className="px-4 py-3">{row.source}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td className="px-4 py-5 text-amber-800" colSpan={10}>
+                資料來源目前無法取得
+              </td>
             </tr>
-          )) : (
-            <tr><td className="px-4 py-5 text-amber-800" colSpan={10}>資料來源目前無法取得</td></tr>
           )}
         </tbody>
       </table>
