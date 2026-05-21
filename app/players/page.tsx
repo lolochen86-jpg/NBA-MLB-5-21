@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export default async function PlayersPage() {
   const [nbaCount, mlbCount] = await Promise.all([
     prisma.player.count({ where: { league: "NBA" } }),
