@@ -107,6 +107,14 @@ npm run seed
 
 `seed` 只會匯入真實 NBA / MLB 球隊清單，不會建立假比賽。
 
+如果本機網路或防火牆無法連到 Supabase PostgreSQL / pooler port，可以到 Supabase Dashboard 的 SQL Editor 執行：
+
+```text
+scripts/supabase-init.sql
+```
+
+這份 SQL 會建立資料表並匯入真實 NBA / MLB 球隊清單。
+
 ## 匯入真實比賽快照
 
 可以用真實 API 快照 JSON 匯入比賽與分節資料：
