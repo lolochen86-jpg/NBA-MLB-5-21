@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: #f4fbff;
+  color: #172033;
+}
+
+select,
+input,
+button {
+  font: inherit;
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+}

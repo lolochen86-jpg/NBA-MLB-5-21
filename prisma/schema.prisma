@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Team {
+  id           Int              @id @default(autoincrement())
+  league       String
+  externalId   String
+  name         String
+  abbreviation String
+  city         String?
+  conference   String?
+  division     String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  homeGames    Game[]           @relation("HomeTeam")
+  awayGames    Game[]           @relation("AwayTeam")
+  periodScores GamePeriodScore[]
+  players      Player[]
+  playerStats  PlayerGameStat[]
+
+  @@unique([league, externalId])
+  @@index([league, abbreviation])
+}
+
+model Game {
+  id                  Int               @id @default(autoincrement())
+  league              String
+  externalGameId      String
+  season              String
+  seasonType          String
+  gameDate            DateTime
+  homeTeamId          Int
+  awayTeamId          Int
+  homeScoreFinal      Int?
+  awayScoreFinal      Int?
+  homeScoreRegulation Int?
+  awayScoreRegulation Int?
+  wentOvertime        Boolean           @default(false)
+  status              String
+  rawJson             String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  homeTeam            Team              @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam            Team              @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  periodScores        GamePeriodScore[]
+  playerStats         PlayerGameStat[]
+
+  @@unique([league, externalGameId])
+  @@index([league, season, seasonType, gameDate])
+  @@index([homeTeamId, gameDate])
+  @@index([awayTeamId, gameDate])
+}
+
+model GamePeriodScore {
+  id                    Int      @id @default(autoincrement())
+  gameId                Int
+  teamId                Int
+  periodNumber          Int
+  periodType            String
+  runsOrPoints          Int
+  isOvertimeOrExtra     Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  game                  Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  team                  Team     @relation(fields: [teamId], references: [id])
+
+  @@unique([gameId, teamId, periodNumber])
+  @@index([teamId, periodNumber])
+}
+
+model Player {
+  id          Int              @id @default(autoincrement())
+  league      String
+  externalId  String
+  name        String
+  teamId      Int?
+  position    String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  team        Team?            @relation(fields: [teamId], references: [id])
+  gameStats   PlayerGameStat[]
+
+  @@unique([league, externalId])
+  @@index([league, name])
+}
+
+model PlayerGameStat {
+  id             Int      @id @default(autoincrement())
+  league         String
+  gameId         Int
+  playerId       Int
+  teamId         Int
+  minutes        Float?
+  points         Int?
+  rebounds       Int?
+  assists        Int?
+  steals         Int?
+  blocks         Int?
+  turnovers      Int?
+  fgPct          Float?
+  threePtPct     Float?
+  ftPct          Float?
+  plusMinus      Float?
+  atBats         Int?
+  runs           Int?
+  hits           Int?
+  homeRuns       Int?
+  rbi            Int?
+  walks          Int?
+  strikeouts     Int?
+  inningsPitched Float?
+  earnedRuns     Int?
+  era            Float?
+  whip           Float?
+  rawJson        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  game           Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  player         Player   @relation(fields: [playerId], references: [id])
+  team           Team     @relation(fields: [teamId], references: [id])
+
+  @@unique([gameId, playerId])
+  @@index([league, teamId, playerId])
+}
+
+model SourceSync {
+  id          Int      @id @default(autoincrement())
+  league      String
+  source      String
+  entity      String
+  status      String
+  message     String?
+  fetchedAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([league, source, entity])
+}
