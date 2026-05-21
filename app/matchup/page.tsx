@@ -3,6 +3,7 @@ import { DownloadButtons } from "@/components/DownloadButtons";
 import { StatCard } from "@/components/StatCard";
 import { getMatchupSummary } from "@/lib/matchup";
 import { prisma } from "@/lib/prisma";
+import { fetchUpcomingMatchups, type UpcomingMatchup } from "@/lib/upcoming-matchups";
 
 type Search = Record<string, string | string[] | undefined>;
 type TeamOption = { id: number; abbreviation: string; name: string };
@@ -10,10 +11,12 @@ type TeamOption = { id: number; abbreviation: string; name: string };
 export default async function MatchupPage({ searchParams }: { searchParams: Promise<Search> }) {
   const params = await searchParams;
   const league = String(params.league ?? "NBA").toUpperCase();
-  const teamsResult = await loadTeams(league);
+  const [teamsResult, upcomingResult] = await Promise.all([loadTeams(league), loadUpcoming(league)]);
   const teams = teamsResult.teams;
-  const homeTeamId = Number(params.homeTeamId ?? teams[0]?.id ?? 0);
-  const awayTeamId = Number(params.awayTeamId ?? teams[1]?.id ?? 0);
+  const selectedUpcoming = upcomingResult.matchups.find((matchup) => matchup.id === String(params.upcomingGameId ?? ""));
+  const selectedTeams = selectedUpcoming ? findTeamsForUpcoming(teams, selectedUpcoming) : null;
+  const homeTeamId = Number(params.homeTeamId ?? selectedTeams?.homeTeamId ?? teams[0]?.id ?? 0);
+  const awayTeamId = Number(params.awayTeamId ?? selectedTeams?.awayTeamId ?? teams[1]?.id ?? 0);
   const season = String(params.season ?? (league === "NBA" ? "2025-26" : "2026"));
   const seasonType = String(params.seasonType ?? "Regular Season");
   const rangeType = String(params.rangeType ?? "games") as "games" | "days";
@@ -57,7 +60,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
           </Link>
           <h1 className="mt-2 text-4xl font-black text-ink">{league} 對戰分析</h1>
           <p className="mt-2 text-lg text-slate-600">
-            每個數字都來自資料庫同步快取；沒有資料時不會產生假結果。
+            選擇最新一輪尚未開賽對戰，直接調用兩隊近況數據。資料不足時不會產生假結果。
           </p>
         </div>
         {summary && !summary.error ? <DownloadButtons queryString={query.toString()} /> : null}
@@ -65,11 +68,23 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
 
       <form className="grid gap-4 rounded-lg border border-sky-100 bg-white p-5 shadow-sm lg:grid-cols-4" action="/matchup">
         <Select name="league" label="聯盟" value={league} options={[["NBA", "NBA"], ["MLB", "MLB"]]} />
+        <Select
+          name="upcomingGameId"
+          label="最新一輪即將對戰"
+          value={String(params.upcomingGameId ?? "")}
+          options={[
+            ["", upcomingResult.error ? "資料來源目前無法取得" : "手動選擇球隊"],
+            ...upcomingResult.matchups.map((matchup) => [
+              matchup.id,
+              `${formatDate(matchup.gameDate)} ${matchup.awayAbbreviation || matchup.awayTeam} @ ${matchup.homeAbbreviation || matchup.homeTeam}`
+            ])
+          ]}
+        />
         <TextInput name="season" label="賽季" value={season} />
         <Select name="seasonType" label="賽制" value={seasonType} options={[["Regular Season", "例行賽"], ["Playoffs", "季後賽"]]} />
-        <Select name="rangeType" label="區間類型" value={rangeType} options={[["games", "最近場數"], ["days", "最近日數"]]} />
         <Select name="homeTeamId" label="主隊" value={String(homeTeamId)} options={teams.map((team) => [String(team.id), `${team.abbreviation} ${team.name}`])} />
         <Select name="awayTeamId" label="客隊" value={String(awayTeamId)} options={teams.map((team) => [String(team.id), `${team.abbreviation} ${team.name}`])} />
+        <Select name="rangeType" label="區間類型" value={rangeType} options={[["games", "最近場數"], ["days", "最近日數"]]} />
         <Select name="rangeValue" label="5 / 10 / 15" value={String(rangeValue)} options={[["5", "5"], ["10", "10"], ["15", "15"]]} />
         <Select name="includeOvertime" label="是否包含延長賽" value={String(includeOvertime)} options={[["true", "是"], ["false", "否"]]} />
         <Select name="splitHomeAway" label="主客場" value={String(splitHomeAway)} options={[["false", "不分主客場"], ["true", "主客場分開"]]} />
@@ -77,6 +92,8 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
           <button className="w-full rounded-md bg-blue-600 px-5 py-3 text-lg font-black text-white hover:bg-blue-700">查詢</button>
         </div>
       </form>
+
+      {selectedUpcoming ? <UpcomingCard matchup={selectedUpcoming} /> : null}
 
       {teamsResult.error ? (
         <Notice text="資料來源目前無法取得" />
@@ -121,6 +138,16 @@ async function loadTeams(league: string): Promise<{ teams: TeamOption[]; error: 
   }
 }
 
+async function loadUpcoming(league: string): Promise<{ matchups: UpcomingMatchup[]; error: boolean }> {
+  try {
+    const matchups = await fetchUpcomingMatchups(league);
+    return { matchups, error: false };
+  } catch (error) {
+    console.error("Upcoming matchups unavailable", error);
+    return { matchups: [], error: true };
+  }
+}
+
 async function getSafeSummary(input: Parameters<typeof getMatchupSummary>[0]) {
   try {
     return { ...(await getMatchupSummary(input)), error: false };
@@ -128,6 +155,27 @@ async function getSafeSummary(input: Parameters<typeof getMatchupSummary>[0]) {
     console.error("Matchup summary unavailable", error);
     return { error: true };
   }
+}
+
+function findTeamsForUpcoming(teams: TeamOption[], matchup: UpcomingMatchup) {
+  const home = teams.find((team) => team.abbreviation === matchup.homeAbbreviation || team.name === matchup.homeTeam);
+  const away = teams.find((team) => team.abbreviation === matchup.awayAbbreviation || team.name === matchup.awayTeam);
+  if (!home || !away) return null;
+  return { homeTeamId: home.id, awayTeamId: away.id };
+}
+
+function UpcomingCard({ matchup }: { matchup: UpcomingMatchup }) {
+  return (
+    <div className="mt-6 rounded-lg border border-blue-100 bg-white p-5 shadow-sm">
+      <div className="text-sm font-bold text-blue-700">已選擇即將對戰</div>
+      <div className="mt-2 text-2xl font-black text-ink">
+        {matchup.awayTeam} @ {matchup.homeTeam}
+      </div>
+      <div className="mt-2 text-base text-slate-600">
+        {formatDate(matchup.gameDate)} · {matchup.status} · {matchup.dataSource}
+      </div>
+    </div>
+  );
 }
 
 function TextInput({ name, label, value }: { name: string; label: string; value: string }) {
@@ -161,9 +209,7 @@ function SummaryTable({ rows }: { rows: any[] }) {
         <thead className="bg-skySoft text-slate-700">
           <tr>
             {["球隊", "場數", "平均得分", "平均失分", "平均分差", "最高", "最低", "勝敗", "主場平均", "客場平均", "含延長賽", "最後更新時間"].map((h) => (
-              <th key={h} className="px-4 py-3">
-                {h}
-              </th>
+              <th key={h} className="px-4 py-3">{h}</th>
             ))}
           </tr>
         </thead>
@@ -177,9 +223,7 @@ function SummaryTable({ rows }: { rows: any[] }) {
               <td className="numeric px-4 py-3 text-right">{fmt(row.averageMargin)}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.highestScored)}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.lowestScored)}</td>
-              <td className="numeric px-4 py-3 text-right">
-                {row.wins}-{row.losses}
-              </td>
+              <td className="numeric px-4 py-3 text-right">{row.wins}-{row.losses}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.homeAverageScored)}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.awayAverageScored)}</td>
               <td className="px-4 py-3">{row.includeOvertime ? "是" : "否"}</td>
@@ -199,9 +243,7 @@ function GameLogTable({ rows }: { rows: any[] }) {
         <thead className="bg-skySoft text-slate-700">
           <tr>
             {["日期", "球隊", "對手", "主客", "得分", "失分", "分差", "勝敗", "含延長", "資料來源"].map((h) => (
-              <th key={h} className="px-4 py-3">
-                {h}
-              </th>
+              <th key={h} className="px-4 py-3">{h}</th>
             ))}
           </tr>
         </thead>
@@ -223,9 +265,7 @@ function GameLogTable({ rows }: { rows: any[] }) {
             ))
           ) : (
             <tr>
-              <td className="px-4 py-5 text-amber-800" colSpan={10}>
-                資料來源目前無法取得
-              </td>
+              <td className="px-4 py-5 text-amber-800" colSpan={10}>資料來源目前無法取得</td>
             </tr>
           )}
         </tbody>
@@ -240,4 +280,9 @@ function Notice({ text }: { text: string }) {
 
 function fmt(value: number | null | undefined) {
   return value === null || value === undefined ? "-" : value.toFixed(2);
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("zh-TW");
 }

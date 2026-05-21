@@ -155,6 +155,10 @@ npm run import:games -- path/to/real-api-snapshot.json
 
 下載檔會先保留 final score、regulation score、Q1-Q4 / 1-9 局、OT / 延長局、`periodScoresJson`、是否延長賽與資料來源。後續分析調用時才用 `includeOvertime` 決定使用 final score 或 regulation score。
 
+## 最新一輪對戰分析
+
+對戰分析頁會從 NBA.com Stats API / MLB StatsAPI 抓最新一輪尚未開賽的對戰組合。選取對戰後會自動帶入主隊與客隊，並用資料庫或本季完整對戰 API fallback 計算兩隊近 5 / 10 / 15 場或日的平均得分、平均失分與分差。
+
 ## 延長賽邏輯
 
 NBA：

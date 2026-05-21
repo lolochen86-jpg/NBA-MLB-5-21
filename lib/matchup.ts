@@ -1,3 +1,4 @@
+import { fetchCurrentSeasonGames } from "@/lib/current-season";
 import { prisma } from "@/lib/prisma";
 
 type GameWithTeams = Awaited<ReturnType<typeof fetchTeamGames>>[number];
@@ -22,7 +23,7 @@ export type TeamSummary = {
 };
 
 export type GameLog = {
-  gameId: number;
+  gameId: number | string;
   date: string;
   team: string;
   opponent: string;
@@ -57,9 +58,7 @@ export async function getMatchupSummary(input: {
     })
   ]);
 
-  if (!home || !away) {
-    throw new Error("找不到指定球隊");
-  }
+  if (!home || !away) throw new Error("找不到指定球隊");
 
   const [homeSummary, awaySummary] = await Promise.all([
     summarizeTeam(input, input.homeTeamId),
@@ -67,10 +66,7 @@ export async function getMatchupSummary(input: {
   ]);
 
   return {
-    dataSource:
-      input.league === "NBA"
-        ? "NBA.com Stats API / local SQLite cache"
-        : "MLB StatsAPI / local SQLite cache",
+    dataSource: input.league === "NBA" ? "NBA.com Stats API / Supabase cache" : "MLB StatsAPI / Supabase cache",
     sourceStatus: sync.length ? sync : "請先同步資料",
     homeTeamSummary: homeSummary,
     awayTeamSummary: awaySummary,
@@ -95,56 +91,28 @@ async function summarizeTeam(
   },
   teamId: number
 ): Promise<TeamSummary & { logs: GameLog[] }> {
-  const games = await fetchTeamGames(input, teamId);
-  const completeGames = input.includeOvertime
-    ? games
-    : games.filter((game) => hasRequiredRegulationScores(game, teamId));
+  const team = await prisma.team.findUniqueOrThrow({ where: { id: teamId } });
+  const dbGames = await fetchTeamGames(input, teamId);
+  const logs = dbGames.length
+    ? buildLogsFromDbGames(dbGames, teamId, input.includeOvertime)
+    : await buildLogsFromCurrentSeason(input, team);
 
-  if (!games.length) {
-    const team = await prisma.team.findUniqueOrThrow({ where: { id: teamId } });
-    return {
-      ...emptySummary(teamId, team.name, input.includeOvertime),
-      unavailableReason: "請先同步資料"
-    };
-  }
-
-  if (!input.includeOvertime && completeGames.length !== games.length) {
-    const team = await prisma.team.findUniqueOrThrow({ where: { id: teamId } });
+  const missingRegulation = logs.some((log) => log.missingPeriodScoring);
+  if (!input.includeOvertime && missingRegulation) {
     return {
       ...emptySummary(teamId, team.name, input.includeOvertime),
       unavailableReason: "此場缺少分節資料"
     };
   }
 
-  const logs = completeGames.map((game) => toGameLog(game, teamId, input.includeOvertime));
-  const scored = logs.map((log) => log.scored);
-  const allowed = logs.map((log) => log.allowed);
-  const homeLogs = logs.filter((log) => log.homeAway === "HOME");
-  const awayLogs = logs.filter((log) => log.homeAway === "AWAY");
-  const wins = logs.filter((log) => log.result === "W").length;
-  const losses = logs.length - wins;
+  if (!logs.length) {
+    return {
+      ...emptySummary(teamId, team.name, input.includeOvertime),
+      unavailableReason: "請先同步資料"
+    };
+  }
 
-  return {
-    teamId,
-    team: logs[0]?.team ?? "Unknown",
-    games: logs.length,
-    averageScored: avg(scored),
-    averageAllowed: avg(allowed),
-    averageMargin: diff(avg(scored), avg(allowed)),
-    highestScored: scored.length ? Math.max(...scored) : null,
-    lowestScored: scored.length ? Math.min(...scored) : null,
-    wins,
-    losses,
-    homeAverageScored: avg(homeLogs.map((log) => log.scored)),
-    awayAverageScored: avg(awayLogs.map((log) => log.scored)),
-    streak: buildStreak(logs),
-    includeOvertime: input.includeOvertime,
-    lastUpdatedAt: completeGames
-      .map((game) => game.updatedAt.toISOString())
-      .sort()
-      .at(-1) ?? null,
-    logs
-  };
+  return summarizeLogs(teamId, team.name, input.includeOvertime, logs);
 }
 
 async function fetchTeamGames(
@@ -158,14 +126,6 @@ async function fetchTeamGames(
   },
   teamId: number
 ) {
-  const baseWhere = {
-    league: input.league,
-    season: input.season,
-    seasonType: input.seasonType,
-    status: "FINAL",
-    OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }]
-  };
-
   const dateFilter =
     input.rangeType === "days"
       ? {
@@ -177,24 +137,91 @@ async function fetchTeamGames(
       : {};
 
   return prisma.game.findMany({
-    where: { ...baseWhere, ...dateFilter },
+    where: {
+      league: input.league,
+      season: input.season,
+      seasonType: input.seasonType,
+      status: "FINAL",
+      OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }],
+      ...dateFilter
+    },
     orderBy: { gameDate: "desc" },
     take: input.rangeType === "games" ? input.rangeValue : undefined,
-    include: {
-      homeTeam: true,
-      awayTeam: true,
-      periodScores: true
-    }
+    include: { homeTeam: true, awayTeam: true, periodScores: true }
   });
 }
 
-function toGameLog(game: GameWithTeams, teamId: number, includeOvertime: boolean): GameLog {
+function buildLogsFromDbGames(games: GameWithTeams[], teamId: number, includeOvertime: boolean) {
+  return games
+    .filter((game) => includeOvertime || hasRequiredRegulationScores(game))
+    .map((game) => toDbGameLog(game, teamId, includeOvertime));
+}
+
+async function buildLogsFromCurrentSeason(
+  input: {
+    league: string;
+    season: string;
+    seasonType: string;
+    rangeType: "games" | "days";
+    rangeValue: number;
+    includeOvertime: boolean;
+  },
+  team: { id: number; name: string; abbreviation: string }
+) {
+  const allGames = await fetchCurrentSeasonGames({
+    league: input.league,
+    season: input.season,
+    seasonType: input.seasonType
+  });
+  const cutoff = new Date(Date.now() - input.rangeValue * 24 * 60 * 60 * 1000);
+  const logs = allGames
+    .filter((game) => game.awayTeam === team.name || game.homeTeam === team.name)
+    .filter((game) => input.rangeType === "games" || new Date(game.gameDate) >= cutoff)
+    .sort((a, b) => Date.parse(b.gameDate) - Date.parse(a.gameDate))
+    .slice(0, input.rangeType === "games" ? input.rangeValue : undefined)
+    .map((game) => {
+      const isHome = game.homeTeam === team.name;
+      const scored = input.includeOvertime
+        ? isHome
+          ? game.homeScoreFinal
+          : game.awayScoreFinal
+        : isHome
+          ? game.homeScoreRegulation
+          : game.awayScoreRegulation;
+      const allowed = input.includeOvertime
+        ? isHome
+          ? game.awayScoreFinal
+          : game.homeScoreFinal
+        : isHome
+          ? game.awayScoreRegulation
+          : game.homeScoreRegulation;
+      const missingPeriodScoring = scored === null || allowed === null;
+
+      return {
+        gameId: game.externalGameId,
+        date: game.gameDate,
+        team: isHome ? game.homeTeam : game.awayTeam,
+        opponent: isHome ? game.awayTeam : game.homeTeam,
+        homeAway: isHome ? "HOME" : "AWAY",
+        scored: scored ?? 0,
+        allowed: allowed ?? 0,
+        margin: (scored ?? 0) - (allowed ?? 0),
+        result: (scored ?? 0) > (allowed ?? 0) ? "W" : "L",
+        wentOvertime: Boolean(game.wentOvertime),
+        missingPeriodScoring,
+        source: game.dataSource
+      } satisfies GameLog;
+    });
+
+  return logs;
+}
+
+function toDbGameLog(game: GameWithTeams, teamId: number, includeOvertime: boolean): GameLog {
   const isHome = game.homeTeamId === teamId;
   const team = isHome ? game.homeTeam : game.awayTeam;
   const opponent = isHome ? game.awayTeam : game.homeTeam;
   const scored = scoreFor(game, isHome, includeOvertime);
   const allowed = scoreFor(game, !isHome, includeOvertime);
-  const missingPeriodScoring = !includeOvertime && !hasRequiredRegulationScores(game, teamId);
 
   return {
     gameId: game.id,
@@ -207,8 +234,36 @@ function toGameLog(game: GameWithTeams, teamId: number, includeOvertime: boolean
     margin: scored - allowed,
     result: scored > allowed ? "W" : "L",
     wentOvertime: game.wentOvertime,
-    missingPeriodScoring,
+    missingPeriodScoring: !includeOvertime && !hasRequiredRegulationScores(game),
     source: game.league === "NBA" ? "NBA.com Stats API" : "MLB StatsAPI"
+  };
+}
+
+function summarizeLogs(teamId: number, team: string, includeOvertime: boolean, logs: GameLog[]): TeamSummary & { logs: GameLog[] } {
+  const scored = logs.map((log) => log.scored);
+  const allowed = logs.map((log) => log.allowed);
+  const homeLogs = logs.filter((log) => log.homeAway === "HOME");
+  const awayLogs = logs.filter((log) => log.homeAway === "AWAY");
+  const wins = logs.filter((log) => log.result === "W").length;
+  const losses = logs.length - wins;
+
+  return {
+    teamId,
+    team,
+    games: logs.length,
+    averageScored: avg(scored),
+    averageAllowed: avg(allowed),
+    averageMargin: diff(avg(scored), avg(allowed)),
+    highestScored: scored.length ? Math.max(...scored) : null,
+    lowestScored: scored.length ? Math.min(...scored) : null,
+    wins,
+    losses,
+    homeAverageScored: avg(homeLogs.map((log) => log.scored)),
+    awayAverageScored: avg(awayLogs.map((log) => log.scored)),
+    streak: buildStreak(logs),
+    includeOvertime,
+    lastUpdatedAt: new Date().toISOString(),
+    logs
   };
 }
 
@@ -220,17 +275,12 @@ function scoreFor(game: GameWithTeams, isHome: boolean, includeOvertime: boolean
     : isHome
       ? game.homeScoreRegulation
       : game.awayScoreRegulation;
-  if (value === null || value === undefined) {
-    throw new Error(includeOvertime ? "缺少最終比分" : "此場缺少分節資料");
-  }
+  if (value === null || value === undefined) throw new Error(includeOvertime ? "缺少最終比分" : "此場缺少分節資料");
   return value;
 }
 
-function hasRequiredRegulationScores(game: GameWithTeams, teamId: number) {
-  const isHome = game.homeTeamId === teamId;
-  const score = isHome ? game.homeScoreRegulation : game.awayScoreRegulation;
-  const opponentScore = isHome ? game.awayScoreRegulation : game.homeScoreRegulation;
-  return score !== null && opponentScore !== null && game.periodScores.length > 0;
+function hasRequiredRegulationScores(game: GameWithTeams) {
+  return game.homeScoreRegulation !== null && game.awayScoreRegulation !== null && game.periodScores.length > 0;
 }
 
 function emptySummary(teamId: number, team: string, includeOvertime: boolean): TeamSummary & { logs: GameLog[] } {
