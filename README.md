@@ -146,14 +146,14 @@ npm run import:games -- path/to/real-api-snapshot.json
 - `GET /api/export?type=players&format=xlsx`
 - `GET /api/export?type=games&format=json`
 
-## 本季已完賽下載
+## 本季完整對戰資料下載
 
-首頁提供「本季已完賽資料下載」。這個功能不依賴資料庫已有比賽資料，會即時從資料來源抓取：
+首頁提供「本季完整對戰資料下載」。這個功能不依賴資料庫已有比賽資料，會即時從資料來源抓取完整對戰資料：
 
-- NBA：NBA.com Stats API `leaguegamelog`
+- NBA：NBA.com Stats API `leaguegamelog` + `scoreboardv2`
 - MLB：MLB StatsAPI `schedule?hydrate=linescore`
 
-MLB 會包含 final score、1-9 局 regulation score、是否延長賽。NBA `leaguegamelog` 只提供 final score；不含延長賽比分需另抓逐場 period scoring。
+下載檔會先保留 final score、regulation score、Q1-Q4 / 1-9 局、OT / 延長局、`periodScoresJson`、是否延長賽與資料來源。後續分析調用時才用 `includeOvertime` 決定使用 final score 或 regulation score。
 
 ## 延長賽邏輯
 

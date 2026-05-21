@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
   try {
     const rows = await fetchCurrentSeasonGames({ league, season, seasonType });
-    const filename = `${league.toLowerCase()}-current-season-games-${Date.now()}`;
+    const filename = `${league.toLowerCase()}-complete-current-season-games-${Date.now()}`;
     const payload = {
       league,
       season: season ?? null,
