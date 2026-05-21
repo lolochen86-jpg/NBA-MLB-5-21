@@ -72,9 +72,13 @@ scripts/
 
 ```bash
 DATABASE_URL="postgresql://postgres:你的密碼@db.ltooojixxhvmpjrhfufd.supabase.co:5432/postgres"
+NEXT_PUBLIC_SUPABASE_URL="https://ltooojixxhvmpjrhfufd.supabase.co"
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="你的 Supabase publishable key"
 ```
 
 不要把 `.env` 上傳到 GitHub。
+
+`NEXT_PUBLIC_SUPABASE_*` 是前端可公開設定，之後做登入或 Supabase client 查詢會用到。`DATABASE_URL` 是伺服器資料庫密碼，不能公開。
 
 ## 本機啟動
 
