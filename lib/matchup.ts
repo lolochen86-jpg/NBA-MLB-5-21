@@ -2,6 +2,14 @@ import { fetchCurrentSeasonGames } from "@/lib/current-season";
 import { prisma } from "@/lib/prisma";
 
 type GameWithTeams = Awaited<ReturnType<typeof fetchTeamGames>>[number];
+type NbaLogRow = Record<string, string | number | null>;
+
+const NBA_HEADERS = {
+  Accept: "application/json, text/plain, */*",
+  Origin: "https://www.nba.com",
+  Referer: "https://www.nba.com/",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+};
 
 export type TeamSummary = {
   teamId: number;
@@ -58,7 +66,7 @@ export async function getMatchupSummary(input: {
     })
   ]);
 
-  if (!home || !away) throw new Error("找不到指定球隊");
+  if (!home || !away) throw new Error("找不到球隊資料");
 
   const [homeSummary, awaySummary] = await Promise.all([
     summarizeTeam(input, input.homeTeamId),
@@ -101,7 +109,7 @@ async function summarizeTeam(
   if (!input.includeOvertime && missingRegulation) {
     return {
       ...emptySummary(teamId, team.name, input.includeOvertime),
-      unavailableReason: "此場缺少分節資料"
+      unavailableReason: "此場缺少分節資料，無法計算不含延長賽"
     };
   }
 
@@ -166,15 +174,19 @@ async function buildLogsFromCurrentSeason(
     rangeValue: number;
     includeOvertime: boolean;
   },
-  team: { id: number; name: string; abbreviation: string }
+  team: { name: string; abbreviation: string }
 ) {
+  if (input.league.toUpperCase() === "NBA") {
+    return buildNbaLogsFromLeagueGameLog(input, team);
+  }
+
   const allGames = await fetchCurrentSeasonGames({
     league: input.league,
     season: input.season,
     seasonType: input.seasonType
   });
   const cutoff = new Date(Date.now() - input.rangeValue * 24 * 60 * 60 * 1000);
-  const logs = allGames
+  return allGames
     .filter((game) => game.awayTeam === team.name || game.homeTeam === team.name)
     .filter((game) => input.rangeType === "games" || new Date(game.gameDate) >= cutoff)
     .sort((a, b) => Date.parse(b.gameDate) - Date.parse(a.gameDate))
@@ -212,8 +224,106 @@ async function buildLogsFromCurrentSeason(
         source: game.dataSource
       } satisfies GameLog;
     });
+}
 
-  return logs;
+async function buildNbaLogsFromLeagueGameLog(
+  input: {
+    season: string;
+    seasonType: string;
+    rangeType: "games" | "days";
+    rangeValue: number;
+    includeOvertime: boolean;
+  },
+  team: { name: string; abbreviation: string }
+) {
+  const rows = await fetchNbaLeagueGameLog(input.season, input.seasonType);
+  const grouped = groupNbaRows(rows);
+  const cutoff = new Date(Date.now() - input.rangeValue * 24 * 60 * 60 * 1000);
+
+  return grouped
+    .filter((game) => game.homeTeam === team.name || game.awayTeam === team.name || game.homeAbbreviation === team.abbreviation || game.awayAbbreviation === team.abbreviation)
+    .filter((game) => input.rangeType === "games" || new Date(game.gameDate) >= cutoff)
+    .sort((a, b) => Date.parse(b.gameDate) - Date.parse(a.gameDate))
+    .slice(0, input.rangeType === "games" ? input.rangeValue : undefined)
+    .map((game) => {
+      const isHome = game.homeTeam === team.name || game.homeAbbreviation === team.abbreviation;
+      const scored = isHome ? game.homeScoreFinal : game.awayScoreFinal;
+      const allowed = isHome ? game.awayScoreFinal : game.homeScoreFinal;
+
+      return {
+        gameId: game.externalGameId,
+        date: game.gameDate,
+        team: isHome ? game.homeTeam : game.awayTeam,
+        opponent: isHome ? game.awayTeam : game.homeTeam,
+        homeAway: isHome ? "HOME" : "AWAY",
+        scored: scored ?? 0,
+        allowed: allowed ?? 0,
+        margin: (scored ?? 0) - (allowed ?? 0),
+        result: (scored ?? 0) > (allowed ?? 0) ? "W" : "L",
+        wentOvertime: false,
+        missingPeriodScoring: !input.includeOvertime,
+        source: "NBA.com Stats API leaguegamelog"
+      } satisfies GameLog;
+    });
+}
+
+async function fetchNbaLeagueGameLog(season: string, seasonType: string): Promise<NbaLogRow[]> {
+  const url = new URL("https://stats.nba.com/stats/leaguegamelog");
+  url.searchParams.set("Counter", "0");
+  url.searchParams.set("DateFrom", "");
+  url.searchParams.set("DateTo", "");
+  url.searchParams.set("Direction", "ASC");
+  url.searchParams.set("LeagueID", "00");
+  url.searchParams.set("PlayerOrTeam", "T");
+  url.searchParams.set("Season", season);
+  url.searchParams.set("SeasonType", seasonType);
+  url.searchParams.set("Sorter", "DATE");
+
+  const response = await fetch(url, { headers: NBA_HEADERS, next: { revalidate: 60 * 30 } });
+  if (!response.ok) throw new Error(`NBA.com Stats API unavailable: ${response.status}`);
+
+  const payload = await response.json();
+  const resultSet = payload.resultSets?.[0];
+  const headers: string[] = resultSet?.headers ?? [];
+  return (resultSet?.rowSet ?? []).map((row: any[]) =>
+    Object.fromEntries(headers.map((header, index) => [header, row[index]]))
+  );
+}
+
+function groupNbaRows(rows: NbaLogRow[]) {
+  const grouped = new Map<string, NbaLogRow[]>();
+  for (const row of rows) {
+    const gameId = String(row.GAME_ID ?? "");
+    if (!gameId) continue;
+    grouped.set(gameId, [...(grouped.get(gameId) ?? []), row]);
+  }
+
+  return Array.from(grouped.entries())
+    .map(([gameId, gameRows]) => {
+      const home = gameRows.find((row) => String(row.MATCHUP ?? "").includes(" vs. "));
+      const away = gameRows.find((row) => String(row.MATCHUP ?? "").includes(" @ "));
+      if (!home || !away) return null;
+      return {
+        externalGameId: gameId,
+        gameDate: String(home.GAME_DATE ?? away.GAME_DATE ?? ""),
+        awayTeam: String(away.TEAM_NAME ?? away.TEAM_ABBREVIATION ?? ""),
+        homeTeam: String(home.TEAM_NAME ?? home.TEAM_ABBREVIATION ?? ""),
+        awayAbbreviation: String(away.TEAM_ABBREVIATION ?? ""),
+        homeAbbreviation: String(home.TEAM_ABBREVIATION ?? ""),
+        awayScoreFinal: numberOrNull(away.PTS),
+        homeScoreFinal: numberOrNull(home.PTS)
+      };
+    })
+    .filter(Boolean) as Array<{
+      externalGameId: string;
+      gameDate: string;
+      awayTeam: string;
+      homeTeam: string;
+      awayAbbreviation: string;
+      homeAbbreviation: string;
+      awayScoreFinal: number | null;
+      homeScoreFinal: number | null;
+    }>;
 }
 
 function toDbGameLog(game: GameWithTeams, teamId: number, includeOvertime: boolean): GameLog {
@@ -316,6 +426,11 @@ function diff(a: number | null, b: number | null) {
 
 function round(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function numberOrNull(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function buildStreak(logs: GameLog[]) {

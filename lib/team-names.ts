@@ -14,6 +14,7 @@ const zhTeamNames: Record<string, string> = {
   "Houston Rockets": "休士頓火箭",
   "Indiana Pacers": "印第安納溜馬",
   "LA Clippers": "洛杉磯快艇",
+  "Los Angeles Clippers": "洛杉磯快艇",
   "Los Angeles Lakers": "洛杉磯湖人",
   "Memphis Grizzlies": "曼菲斯灰熊",
   "Miami Heat": "邁阿密熱火",
@@ -31,6 +32,7 @@ const zhTeamNames: Record<string, string> = {
   "Toronto Raptors": "多倫多暴龍",
   "Utah Jazz": "猶他爵士",
   "Washington Wizards": "華盛頓巫師",
+
   "Arizona Diamondbacks": "亞利桑那響尾蛇",
   "Atlanta Braves": "亞特蘭大勇士",
   "Baltimore Orioles": "巴爾的摩金鶯",
@@ -51,6 +53,7 @@ const zhTeamNames: Record<string, string> = {
   "New York Mets": "紐約大都會",
   "New York Yankees": "紐約洋基",
   Athletics: "運動家",
+  "Oakland Athletics": "奧克蘭運動家",
   "Philadelphia Phillies": "費城費城人",
   "Pittsburgh Pirates": "匹茲堡海盜",
   "San Diego Padres": "聖地牙哥教士",

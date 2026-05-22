@@ -21,17 +21,18 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
   const teams = teamsResult.teams;
   const selectedUpcoming = upcomingResult.matchups.find((matchup) => matchup.id === String(params.upcomingGameId ?? ""));
   const selectedTeams = selectedUpcoming ? findTeamsForUpcoming(teams, selectedUpcoming) : null;
-  const homeTeamId = Number(params.homeTeamId ?? selectedTeams?.homeTeamId ?? teams[0]?.id ?? 0);
-  const awayTeamId = Number(params.awayTeamId ?? selectedTeams?.awayTeamId ?? teams[1]?.id ?? 0);
+  const homeTeamId = Number(selectedTeams?.homeTeamId ?? params.homeTeamId ?? teams[0]?.id ?? 0);
+  const awayTeamId = Number(selectedTeams?.awayTeamId ?? params.awayTeamId ?? teams[1]?.id ?? 0);
   const season = String(params.season ?? (league === "NBA" ? "2025-26" : "2026"));
   const seasonType = String(params.seasonType ?? "Regular Season");
   const rangeType = String(params.rangeType ?? "games") as "games" | "days";
   const rangeValue = Number(params.rangeValue ?? 5);
   const includeOvertime = String(params.includeOvertime ?? "true") === "true";
   const splitHomeAway = String(params.splitHomeAway ?? "false") === "true";
+  const shouldAnalyze = Boolean(params.analyze === "true" || params.upcomingGameId || params.homeTeamId || params.awayTeamId);
 
   const summary: any =
-    homeTeamId && awayTeamId
+    shouldAnalyze && homeTeamId && awayTeamId
       ? await getSafeSummary({
           league,
           homeTeamId,
@@ -58,6 +59,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
     splitHomeAway: String(splitHomeAway)
   });
   if (params.upcomingGameId) query.set("upcomingGameId", String(params.upcomingGameId));
+  if (shouldAnalyze) query.set("analyze", "true");
 
   return (
     <main className="mx-auto min-h-screen max-w-7xl px-5 py-8">
@@ -79,6 +81,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
 
       <form className="grid gap-4 rounded-lg border border-sky-100 bg-white p-5 shadow-sm lg:grid-cols-4" action="/matchup">
         <input type="hidden" name="lang" value={lang} />
+        <input type="hidden" name="analyze" value="true" />
         <Select name="league" label="League" value={league} options={[["NBA", "NBA"], ["MLB", "MLB"]]} />
         <Select
           name="upcomingGameId"
@@ -130,7 +133,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
           <GameLogTable rows={summary.gameLogs} headers={mt.logHeaders} yes={mt.yes} no={mt.no} unavailable={t.unavailable} lang={lang} />
         </section>
       ) : (
-        <Notice text={t.unavailable} />
+        <Notice text={lang === "zh" ? "請選擇球隊或最新未開賽對戰後按查詢。" : "Choose teams or an upcoming matchup, then run the query."} />
       )}
     </main>
   );

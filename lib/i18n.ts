@@ -33,25 +33,25 @@ export const dict = {
       lastUpdated: "最後更新時間"
     },
     downloads: {
-      title: "本季完整對戰資料下載",
-      subtitle: "先下載完整 final score、regulation score、分節/每局得分與是否延長賽；後續分析再切換含不含延長賽。",
-      nbaCsv: "NBA 完整對戰 CSV",
-      nbaXlsx: "NBA 完整對戰 Excel",
-      mlbCsv: "MLB 完整對戰 CSV",
-      mlbXlsx: "MLB 完整對戰 Excel"
+      title: "本季完整對戰數據下載",
+      subtitle: "先下載完整 final score、regulation score、分節/每局得分與延長賽標記；後續分析時再選擇是否包含延長賽。",
+      nbaCsv: "NBA 完整 CSV",
+      nbaXlsx: "NBA 完整 Excel",
+      mlbCsv: "MLB 完整 CSV",
+      mlbXlsx: "MLB 完整 Excel"
     },
     matchup: {
       title: "對戰分析",
-      subtitle: "選擇最新一輪尚未開賽對戰，直接調用兩隊近況數據。資料不足時不會產生假結果。",
-      upcoming: "最新一輪即將對戰",
+      subtitle: "選擇最新未開賽對戰或手動挑球隊，分析雙方近期得失分。資料缺漏會明確顯示，不自行編造。",
+      upcoming: "最新未開賽對戰",
       manual: "手動選擇球隊",
       season: "賽季",
-      seasonType: "賽制",
+      seasonType: "賽事類型",
       regular: "例行賽",
       playoffs: "季後賽",
       homeTeam: "主隊",
       awayTeam: "客隊",
-      rangeType: "區間類型",
+      rangeType: "資料區間",
       recentGames: "最近場數",
       recentDays: "最近日數",
       includeOt: "是否包含延長賽",
@@ -61,13 +61,13 @@ export const dict = {
       yes: "是",
       no: "否",
       submit: "查詢",
-      selected: "已選擇即將對戰",
+      selected: "已選擇未開賽對戰",
       homeAvgScored: "主隊平均得分",
       homeAvgAllowed: "主隊平均失分",
       awayAvgScored: "客隊平均得分",
       awayAvgAllowed: "客隊平均失分",
-      tableHeaders: ["球隊", "場數", "平均得分", "平均失分", "平均分差", "最高", "最低", "勝敗", "主場平均", "客場平均", "含延長賽", "最後更新時間"],
-      logHeaders: ["日期", "球隊", "對手", "主客", "得分", "失分", "分差", "勝敗", "含延長", "資料來源"]
+      tableHeaders: ["球隊", "場數", "平均得分", "平均失分", "平均分差", "最高", "最低", "勝敗", "主場平均", "客場平均", "含延長賽", "最後更新"],
+      logHeaders: ["日期", "球隊", "對手", "主客", "得分", "失分", "分差", "結果", "延長賽", "資料來源"]
     }
   },
   en: {

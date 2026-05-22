@@ -29,7 +29,7 @@ async function fetchMlbUpcoming(): Promise<UpcomingMatchup[]> {
   const url = new URL("https://statsapi.mlb.com/api/v1/schedule");
   url.searchParams.set("sportId", "1");
   url.searchParams.set("startDate", todayIsoDate());
-  url.searchParams.set("endDate", addDaysIsoDate(14));
+  url.searchParams.set("endDate", addDaysIsoDate(5));
   url.searchParams.set("gameTypes", "R,P");
 
   const response = await fetch(url, { next: { revalidate: 60 * 15 } });
@@ -39,7 +39,7 @@ async function fetchMlbUpcoming(): Promise<UpcomingMatchup[]> {
   const games = (payload.dates ?? []).flatMap((date: any) => date.games ?? []);
   return games
     .filter((game: any) => isUpcomingStatus(game.status))
-    .slice(0, 30)
+    .slice(0, 12)
     .map((game: any) => ({
       id: String(game.gamePk),
       league: "MLB",
@@ -55,7 +55,7 @@ async function fetchMlbUpcoming(): Promise<UpcomingMatchup[]> {
 
 async function fetchNbaUpcoming(): Promise<UpcomingMatchup[]> {
   const allGames: UpcomingMatchup[] = [];
-  for (let dayOffset = 0; dayOffset < 14; dayOffset += 1) {
+  for (let dayOffset = 0; dayOffset < 5; dayOffset += 1) {
     const date = addDaysIsoDate(dayOffset);
     const url = new URL("https://stats.nba.com/stats/scoreboardv2");
     url.searchParams.set("DayOffset", "0");
@@ -86,9 +86,9 @@ async function fetchNbaUpcoming(): Promise<UpcomingMatchup[]> {
           dataSource: "NBA.com Stats API scoreboardv2"
         }))
     );
-    if (allGames.length >= 30) break;
+    if (allGames.length >= 12) break;
   }
-  return allGames.slice(0, 30);
+  return allGames.slice(0, 12);
 }
 
 function isUpcomingStatus(status: any) {
