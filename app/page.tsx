@@ -1,16 +1,18 @@
 import Link from "next/link";
 import { CurrentSeasonDownloads } from "@/components/CurrentSeasonDownloads";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { dict, getLang, withLang } from "@/lib/i18n";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+type Search = Record<string, string | string[] | undefined>;
 type UpcomingGame = {
   id: number;
   gameDate: Date;
   homeTeam: { abbreviation: string };
   awayTeam: { abbreviation: string };
 };
-
 type SyncRow = {
   id: number;
   league: string;
@@ -19,23 +21,27 @@ type SyncRow = {
   fetchedAt: Date;
 };
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: { searchParams: Promise<Search> }) {
+  const params = await searchParams;
+  const lang = getLang(params.lang);
+  const t = dict[lang];
   const data = await loadDashboardData();
+  const query = new URLSearchParams();
+  query.set("lang", lang);
 
   return (
     <main className="min-h-screen">
       <section className="border-b border-sky-100 bg-white">
         <div className="mx-auto max-w-7xl px-5 py-10 sm:py-14">
-          <p className="text-base font-bold text-blue-700">Sports Data MVP</p>
-          <h1 className="mt-3 text-4xl font-black tracking-normal text-ink sm:text-5xl">
-            NBA / MLB 對戰數據下載中心
-          </h1>
-          <p className="mt-4 max-w-3xl text-xl leading-8 text-slate-600">
-            即時整理球隊近況、球員數據、得失分平均。所有資料皆來自 API 或資料庫同步快取，抓不到就不編造。
-          </p>
+          <div className="flex items-start justify-between gap-4">
+            <p className="text-base font-bold text-blue-700">Sports Data MVP</p>
+            <LanguageSwitcher lang={lang} pathname="/" params={query} />
+          </div>
+          <h1 className="mt-3 text-4xl font-black tracking-normal text-ink sm:text-5xl">{t.title}</h1>
+          <p className="mt-4 max-w-3xl text-xl leading-8 text-slate-600">{t.subtitle}</p>
           {data.error ? (
             <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-base font-bold text-amber-800">
-              資料來源目前無法取得
+              {t.unavailable}
             </div>
           ) : null}
         </div>
@@ -43,29 +49,25 @@ export default async function HomePage() {
 
       <section className="mx-auto grid max-w-7xl gap-5 px-5 py-8 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          ["NBA 對戰分析", "/matchup?league=NBA", "近 5 / 10 / 15 場或日"],
-          ["MLB 對戰分析", "/matchup?league=MLB", "含延長賽與九局切換"],
-          ["球員數據", "/players", "NBA / MLB 分頁查詢"],
-          ["下載中心", "/matchup?league=NBA", "CSV、Excel、JSON"]
+          [t.dashboard.nba, withLang("/matchup?league=NBA", lang), t.dashboard.nbaText],
+          [t.dashboard.mlb, withLang("/matchup?league=MLB", lang), t.dashboard.mlbText],
+          [t.dashboard.players, withLang("/players", lang), t.dashboard.playersText],
+          [t.dashboard.downloads, withLang("/matchup?league=NBA", lang), t.dashboard.downloadsText]
         ].map(([title, href, text]) => (
-          <Link
-            key={title}
-            href={href}
-            className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-          >
+          <Link key={title} href={href} className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
             <div className="text-xl font-black text-ink">{title}</div>
             <div className="mt-3 text-base text-slate-600">{text}</div>
           </Link>
         ))}
       </section>
 
-      <CurrentSeasonDownloads />
+      <CurrentSeasonDownloads lang={lang} />
 
       <section className="mx-auto grid max-w-7xl gap-6 px-5 pb-12 lg:grid-cols-3">
-        <ScheduleCard title="NBA 今日 / 即將比賽" games={data.nbaUpcoming} />
-        <ScheduleCard title="MLB 今日 / 即將比賽" games={data.mlbUpcoming} />
+        <ScheduleCard title={t.dashboard.nbaUpcoming} games={data.nbaUpcoming} unavailable={t.unavailable} />
+        <ScheduleCard title={t.dashboard.mlbUpcoming} games={data.mlbUpcoming} unavailable={t.unavailable} />
         <div className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm">
-          <h2 className="text-2xl font-black text-ink">資料同步狀態</h2>
+          <h2 className="text-2xl font-black text-ink">{t.dashboard.syncStatus}</h2>
           <div className="mt-4 space-y-3">
             {data.syncRows.length ? (
               data.syncRows.map((row) => (
@@ -75,12 +77,12 @@ export default async function HomePage() {
                   </div>
                   <div className="text-sm text-slate-600">{row.status}</div>
                   <div className="numeric text-sm text-slate-500">
-                    最後更新時間：{row.fetchedAt.toLocaleString("zh-TW")}
+                    {t.dashboard.lastUpdated}: {row.fetchedAt.toLocaleString(lang === "zh" ? "zh-TW" : "en-US")}
                   </div>
                 </div>
               ))
             ) : (
-              <div className="rounded-md bg-amber-50 p-4 text-amber-800">請先同步資料</div>
+              <div className="rounded-md bg-amber-50 p-4 text-amber-800">{t.syncFirst}</div>
             )}
           </div>
         </div>
@@ -111,7 +113,6 @@ async function loadDashboardData(): Promise<{
       }),
       prisma.sourceSync.findMany({ orderBy: { fetchedAt: "desc" }, take: 6 })
     ]);
-
     return { nbaUpcoming, mlbUpcoming, syncRows, error: false };
   } catch (error) {
     console.error("Dashboard data unavailable", error);
@@ -119,7 +120,7 @@ async function loadDashboardData(): Promise<{
   }
 }
 
-function ScheduleCard({ title, games }: { title: string; games: UpcomingGame[] }) {
+function ScheduleCard({ title, games, unavailable }: { title: string; games: UpcomingGame[]; unavailable: string }) {
   return (
     <div className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm">
       <h2 className="text-2xl font-black text-ink">{title}</h2>
@@ -130,13 +131,11 @@ function ScheduleCard({ title, games }: { title: string; games: UpcomingGame[] }
               <div className="font-bold">
                 {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
               </div>
-              <div className="numeric text-sm text-slate-500">
-                {game.gameDate.toLocaleString("zh-TW")}
-              </div>
+              <div className="numeric text-sm text-slate-500">{game.gameDate.toLocaleString("zh-TW")}</div>
             </div>
           ))
         ) : (
-          <div className="rounded-md bg-amber-50 p-4 text-amber-800">資料來源目前無法取得</div>
+          <div className="rounded-md bg-amber-50 p-4 text-amber-800">{unavailable}</div>
         )}
       </div>
     </div>

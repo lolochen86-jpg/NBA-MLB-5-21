@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { DownloadButtons } from "@/components/DownloadButtons";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { StatCard } from "@/components/StatCard";
+import { dict, getLang, withLang } from "@/lib/i18n";
 import { getMatchupSummary } from "@/lib/matchup";
 import { prisma } from "@/lib/prisma";
 import { fetchUpcomingMatchups, type UpcomingMatchup } from "@/lib/upcoming-matchups";
@@ -10,6 +12,9 @@ type TeamOption = { id: number; abbreviation: string; name: string };
 
 export default async function MatchupPage({ searchParams }: { searchParams: Promise<Search> }) {
   const params = await searchParams;
+  const lang = getLang(params.lang);
+  const t = dict[lang];
+  const mt = t.matchup;
   const league = String(params.league ?? "NBA").toUpperCase();
   const [teamsResult, upcomingResult] = await Promise.all([loadTeams(league), loadUpcoming(league)]);
   const teams = teamsResult.teams;
@@ -40,6 +45,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
       : null;
 
   const query = new URLSearchParams({
+    lang,
     league,
     homeTeamId: String(homeTeamId),
     awayTeamId: String(awayTeamId),
@@ -50,75 +56,80 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
     includeOvertime: String(includeOvertime),
     splitHomeAway: String(splitHomeAway)
   });
+  if (params.upcomingGameId) query.set("upcomingGameId", String(params.upcomingGameId));
 
   return (
     <main className="mx-auto min-h-screen max-w-7xl px-5 py-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <Link href="/" className="text-base font-bold text-blue-700">
-            首頁
+          <Link href={withLang("/", lang)} className="text-base font-bold text-blue-700">
+            {t.home}
           </Link>
-          <h1 className="mt-2 text-4xl font-black text-ink">{league} 對戰分析</h1>
-          <p className="mt-2 text-lg text-slate-600">
-            選擇最新一輪尚未開賽對戰，直接調用兩隊近況數據。資料不足時不會產生假結果。
-          </p>
+          <h1 className="mt-2 text-4xl font-black text-ink">
+            {league} {mt.title}
+          </h1>
+          <p className="mt-2 text-lg text-slate-600">{mt.subtitle}</p>
         </div>
-        {summary && !summary.error ? <DownloadButtons queryString={query.toString()} /> : null}
+        <div className="flex flex-wrap gap-3">
+          <LanguageSwitcher lang={lang} pathname="/matchup" params={query} />
+          {summary && !summary.error ? <DownloadButtons queryString={query.toString()} /> : null}
+        </div>
       </div>
 
       <form className="grid gap-4 rounded-lg border border-sky-100 bg-white p-5 shadow-sm lg:grid-cols-4" action="/matchup">
-        <Select name="league" label="聯盟" value={league} options={[["NBA", "NBA"], ["MLB", "MLB"]]} />
+        <input type="hidden" name="lang" value={lang} />
+        <Select name="league" label="League" value={league} options={[["NBA", "NBA"], ["MLB", "MLB"]]} />
         <Select
           name="upcomingGameId"
-          label="最新一輪即將對戰"
+          label={mt.upcoming}
           value={String(params.upcomingGameId ?? "")}
           options={[
-            ["", upcomingResult.error ? "資料來源目前無法取得" : "手動選擇球隊"],
+            ["", upcomingResult.error ? t.unavailable : mt.manual],
             ...upcomingResult.matchups.map((matchup) => [
               matchup.id,
-              `${formatDate(matchup.gameDate)} ${matchup.awayAbbreviation || matchup.awayTeam} @ ${matchup.homeAbbreviation || matchup.homeTeam}`
+              `${formatDate(matchup.gameDate, lang)} ${matchup.awayAbbreviation || matchup.awayTeam} @ ${matchup.homeAbbreviation || matchup.homeTeam}`
             ])
           ]}
         />
-        <TextInput name="season" label="賽季" value={season} />
-        <Select name="seasonType" label="賽制" value={seasonType} options={[["Regular Season", "例行賽"], ["Playoffs", "季後賽"]]} />
-        <Select name="homeTeamId" label="主隊" value={String(homeTeamId)} options={teams.map((team) => [String(team.id), `${team.abbreviation} ${team.name}`])} />
-        <Select name="awayTeamId" label="客隊" value={String(awayTeamId)} options={teams.map((team) => [String(team.id), `${team.abbreviation} ${team.name}`])} />
-        <Select name="rangeType" label="區間類型" value={rangeType} options={[["games", "最近場數"], ["days", "最近日數"]]} />
+        <TextInput name="season" label={mt.season} value={season} />
+        <Select name="seasonType" label={mt.seasonType} value={seasonType} options={[["Regular Season", mt.regular], ["Playoffs", mt.playoffs]]} />
+        <Select name="homeTeamId" label={mt.homeTeam} value={String(homeTeamId)} options={teams.map((team) => [String(team.id), `${team.abbreviation} ${team.name}`])} />
+        <Select name="awayTeamId" label={mt.awayTeam} value={String(awayTeamId)} options={teams.map((team) => [String(team.id), `${team.abbreviation} ${team.name}`])} />
+        <Select name="rangeType" label={mt.rangeType} value={rangeType} options={[["games", mt.recentGames], ["days", mt.recentDays]]} />
         <Select name="rangeValue" label="5 / 10 / 15" value={String(rangeValue)} options={[["5", "5"], ["10", "10"], ["15", "15"]]} />
-        <Select name="includeOvertime" label="是否包含延長賽" value={String(includeOvertime)} options={[["true", "是"], ["false", "否"]]} />
-        <Select name="splitHomeAway" label="主客場" value={String(splitHomeAway)} options={[["false", "不分主客場"], ["true", "主客場分開"]]} />
+        <Select name="includeOvertime" label={mt.includeOt} value={String(includeOvertime)} options={[["true", mt.yes], ["false", mt.no]]} />
+        <Select name="splitHomeAway" label={mt.splitHomeAway} value={String(splitHomeAway)} options={[["false", mt.noSplit], ["true", mt.split]]} />
         <div className="flex items-end">
-          <button className="w-full rounded-md bg-blue-600 px-5 py-3 text-lg font-black text-white hover:bg-blue-700">查詢</button>
+          <button className="w-full rounded-md bg-blue-600 px-5 py-3 text-lg font-black text-white hover:bg-blue-700">{mt.submit}</button>
         </div>
       </form>
 
-      {selectedUpcoming ? <UpcomingCard matchup={selectedUpcoming} /> : null}
+      {selectedUpcoming ? <UpcomingCard matchup={selectedUpcoming} label={mt.selected} lang={lang} /> : null}
 
       {teamsResult.error ? (
-        <Notice text="資料來源目前無法取得" />
+        <Notice text={t.unavailable} />
       ) : !teams.length ? (
-        <Notice text="請先同步資料" />
+        <Notice text={t.syncFirst} />
       ) : summary?.error ? (
-        <Notice text="資料來源目前無法取得" />
+        <Notice text={t.unavailable} />
       ) : summary ? (
         <section className="mt-6 space-y-6">
           {summary.homeTeamSummary.unavailableReason || summary.awayTeamSummary.unavailableReason ? (
-            <Notice text={summary.homeTeamSummary.unavailableReason ?? summary.awayTeamSummary.unavailableReason ?? "資料來源目前無法取得"} />
+            <Notice text={summary.homeTeamSummary.unavailableReason ?? summary.awayTeamSummary.unavailableReason ?? t.unavailable} />
           ) : null}
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <StatCard title="主隊平均得分" value={fmt(summary.homeTeamSummary.averageScored)} helper={summary.homeTeamSummary.team} />
-            <StatCard title="主隊平均失分" value={fmt(summary.homeTeamSummary.averageAllowed)} helper={`${summary.homeTeamSummary.wins}-${summary.homeTeamSummary.losses}`} />
-            <StatCard title="客隊平均得分" value={fmt(summary.awayTeamSummary.averageScored)} helper={summary.awayTeamSummary.team} />
-            <StatCard title="客隊平均失分" value={fmt(summary.awayTeamSummary.averageAllowed)} helper={`${summary.awayTeamSummary.wins}-${summary.awayTeamSummary.losses}`} />
+            <StatCard title={mt.homeAvgScored} value={fmt(summary.homeTeamSummary.averageScored)} helper={summary.homeTeamSummary.team} />
+            <StatCard title={mt.homeAvgAllowed} value={fmt(summary.homeTeamSummary.averageAllowed)} helper={`${summary.homeTeamSummary.wins}-${summary.homeTeamSummary.losses}`} />
+            <StatCard title={mt.awayAvgScored} value={fmt(summary.awayTeamSummary.averageScored)} helper={summary.awayTeamSummary.team} />
+            <StatCard title={mt.awayAvgAllowed} value={fmt(summary.awayTeamSummary.averageAllowed)} helper={`${summary.awayTeamSummary.wins}-${summary.awayTeamSummary.losses}`} />
           </div>
 
-          <SummaryTable rows={[summary.homeTeamSummary, summary.awayTeamSummary]} />
-          <GameLogTable rows={summary.gameLogs} />
+          <SummaryTable rows={[summary.homeTeamSummary, summary.awayTeamSummary]} headers={mt.tableHeaders} yes={mt.yes} no={mt.no} lang={lang} />
+          <GameLogTable rows={summary.gameLogs} headers={mt.logHeaders} yes={mt.yes} no={mt.no} unavailable={t.unavailable} lang={lang} />
         </section>
       ) : (
-        <Notice text="資料來源目前無法取得" />
+        <Notice text={t.unavailable} />
       )}
     </main>
   );
@@ -164,15 +175,15 @@ function findTeamsForUpcoming(teams: TeamOption[], matchup: UpcomingMatchup) {
   return { homeTeamId: home.id, awayTeamId: away.id };
 }
 
-function UpcomingCard({ matchup }: { matchup: UpcomingMatchup }) {
+function UpcomingCard({ matchup, label, lang }: { matchup: UpcomingMatchup; label: string; lang: "zh" | "en" }) {
   return (
     <div className="mt-6 rounded-lg border border-blue-100 bg-white p-5 shadow-sm">
-      <div className="text-sm font-bold text-blue-700">已選擇即將對戰</div>
+      <div className="text-sm font-bold text-blue-700">{label}</div>
       <div className="mt-2 text-2xl font-black text-ink">
         {matchup.awayTeam} @ {matchup.homeTeam}
       </div>
       <div className="mt-2 text-base text-slate-600">
-        {formatDate(matchup.gameDate)} · {matchup.status} · {matchup.dataSource}
+        {formatDate(matchup.gameDate, lang)} · {matchup.status} · {matchup.dataSource}
       </div>
     </div>
   );
@@ -193,25 +204,19 @@ function Select({ name, label, value, options }: { name: string; label: string; 
       <span className="text-sm font-bold text-slate-600">{label}</span>
       <select className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-3 text-lg" name={name} defaultValue={value}>
         {options.map(([optionValue, text]) => (
-          <option key={optionValue} value={optionValue}>
-            {text}
-          </option>
+          <option key={optionValue} value={optionValue}>{text}</option>
         ))}
       </select>
     </label>
   );
 }
 
-function SummaryTable({ rows }: { rows: any[] }) {
+function SummaryTable({ rows, headers, yes, no, lang }: { rows: any[]; headers: readonly string[]; yes: string; no: string; lang: "zh" | "en" }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-sky-100 bg-white shadow-sm">
       <table className="w-full min-w-[920px] text-left text-base">
         <thead className="bg-skySoft text-slate-700">
-          <tr>
-            {["球隊", "場數", "平均得分", "平均失分", "平均分差", "最高", "最低", "勝敗", "主場平均", "客場平均", "含延長賽", "最後更新時間"].map((h) => (
-              <th key={h} className="px-4 py-3">{h}</th>
-            ))}
-          </tr>
+          <tr>{headers.map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map((row) => (
@@ -226,8 +231,8 @@ function SummaryTable({ rows }: { rows: any[] }) {
               <td className="numeric px-4 py-3 text-right">{row.wins}-{row.losses}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.homeAverageScored)}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.awayAverageScored)}</td>
-              <td className="px-4 py-3">{row.includeOvertime ? "是" : "否"}</td>
-              <td className="numeric px-4 py-3">{row.lastUpdatedAt ? new Date(row.lastUpdatedAt).toLocaleString("zh-TW") : "-"}</td>
+              <td className="px-4 py-3">{row.includeOvertime ? yes : no}</td>
+              <td className="numeric px-4 py-3">{row.lastUpdatedAt ? new Date(row.lastUpdatedAt).toLocaleString(lang === "zh" ? "zh-TW" : "en-US") : "-"}</td>
             </tr>
           ))}
         </tbody>
@@ -236,37 +241,29 @@ function SummaryTable({ rows }: { rows: any[] }) {
   );
 }
 
-function GameLogTable({ rows }: { rows: any[] }) {
+function GameLogTable({ rows, headers, yes, no, unavailable, lang }: { rows: any[]; headers: readonly string[]; yes: string; no: string; unavailable: string; lang: "zh" | "en" }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-sky-100 bg-white shadow-sm">
       <table className="w-full min-w-[780px] text-left text-base">
         <thead className="bg-skySoft text-slate-700">
-          <tr>
-            {["日期", "球隊", "對手", "主客", "得分", "失分", "分差", "勝敗", "含延長", "資料來源"].map((h) => (
-              <th key={h} className="px-4 py-3">{h}</th>
-            ))}
-          </tr>
+          <tr>{headers.map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr>
         </thead>
         <tbody>
-          {rows.length ? (
-            rows.map((row) => (
-              <tr key={`${row.gameId}-${row.team}`} className="border-t border-slate-100">
-                <td className="numeric px-4 py-3">{new Date(row.date).toLocaleDateString("zh-TW")}</td>
-                <td className="px-4 py-3 font-bold">{row.team}</td>
-                <td className="px-4 py-3">{row.opponent}</td>
-                <td className="px-4 py-3">{row.homeAway}</td>
-                <td className="numeric px-4 py-3 text-right">{row.scored}</td>
-                <td className="numeric px-4 py-3 text-right">{row.allowed}</td>
-                <td className="numeric px-4 py-3 text-right">{row.margin}</td>
-                <td className="px-4 py-3">{row.result}</td>
-                <td className="px-4 py-3">{row.wentOvertime ? "是" : "否"}</td>
-                <td className="px-4 py-3">{row.source}</td>
-              </tr>
-            ))
-          ) : (
-            <tr>
-              <td className="px-4 py-5 text-amber-800" colSpan={10}>資料來源目前無法取得</td>
+          {rows.length ? rows.map((row) => (
+            <tr key={`${row.gameId}-${row.team}`} className="border-t border-slate-100">
+              <td className="numeric px-4 py-3">{new Date(row.date).toLocaleDateString(lang === "zh" ? "zh-TW" : "en-US")}</td>
+              <td className="px-4 py-3 font-bold">{row.team}</td>
+              <td className="px-4 py-3">{row.opponent}</td>
+              <td className="px-4 py-3">{row.homeAway}</td>
+              <td className="numeric px-4 py-3 text-right">{row.scored}</td>
+              <td className="numeric px-4 py-3 text-right">{row.allowed}</td>
+              <td className="numeric px-4 py-3 text-right">{row.margin}</td>
+              <td className="px-4 py-3">{row.result}</td>
+              <td className="px-4 py-3">{row.wentOvertime ? yes : no}</td>
+              <td className="px-4 py-3">{row.source}</td>
             </tr>
+          )) : (
+            <tr><td className="px-4 py-5 text-amber-800" colSpan={10}>{unavailable}</td></tr>
           )}
         </tbody>
       </table>
@@ -282,7 +279,7 @@ function fmt(value: number | null | undefined) {
   return value === null || value === undefined ? "-" : value.toFixed(2);
 }
 
-function formatDate(value: string) {
+function formatDate(value: string, lang: "zh" | "en") {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("zh-TW");
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(lang === "zh" ? "zh-TW" : "en-US");
 }
