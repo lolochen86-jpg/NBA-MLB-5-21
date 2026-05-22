@@ -289,7 +289,7 @@ async function fetchNbaLeagueGameLog(season: string, seasonType: string): Promis
   url.searchParams.set("SeasonType", seasonType);
   url.searchParams.set("Sorter", "DATE");
 
-  const response = await fetch(url, { headers: NBA_HEADERS, next: { revalidate: 60 * 30 } });
+  const response = await fetchWithTimeout(url.toString(), { headers: NBA_HEADERS, next: { revalidate: 60 * 30 } }, 4000);
   if (!response.ok) throw new Error(`NBA.com Stats API unavailable: ${response.status}`);
 
   const payload = await response.json();
@@ -298,6 +298,16 @@ async function fetchNbaLeagueGameLog(season: string, seasonType: string): Promis
   return (resultSet?.rowSet ?? []).map((row: any[]) =>
     Object.fromEntries(headers.map((header, index) => [header, row[index]]))
   );
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function groupNbaRows(rows: NbaLogRow[]) {

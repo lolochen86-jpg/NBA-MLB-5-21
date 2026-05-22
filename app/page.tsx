@@ -99,6 +99,19 @@ async function loadDashboardData(): Promise<{
   error: boolean;
 }> {
   try {
+    return await withTimeout(loadDashboardDataFromDb(), 2000);
+  } catch (error) {
+    console.error("Dashboard data unavailable", error);
+    return { nbaUpcoming: [], mlbUpcoming: [], syncRows: [], error: true };
+  }
+}
+
+async function loadDashboardDataFromDb(): Promise<{
+  nbaUpcoming: UpcomingGame[];
+  mlbUpcoming: UpcomingGame[];
+  syncRows: SyncRow[];
+  error: boolean;
+}> {
     const now = new Date();
     const soon = new Date(now);
     soon.setUTCDate(soon.getUTCDate() + 7);
@@ -122,10 +135,13 @@ async function loadDashboardData(): Promise<{
       prisma.sourceSync.findMany({ orderBy: { fetchedAt: "desc" }, take: 6 })
     ]);
     return { nbaUpcoming, mlbUpcoming, syncRows, error: false };
-  } catch (error) {
-    console.error("Dashboard data unavailable", error);
-    return { nbaUpcoming: [], mlbUpcoming: [], syncRows: [], error: true };
-  }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error("Dashboard timed out")), timeoutMs))
+  ]);
 }
 
 function ScheduleCard({ title, games, unavailable, lang }: { title: string; games: UpcomingGame[]; unavailable: string; lang: "zh" | "en" }) {
