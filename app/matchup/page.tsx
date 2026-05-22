@@ -10,7 +10,7 @@ import { teamLabel, teamName } from "@/lib/team-names";
 import { fetchUpcomingMatchups, type UpcomingMatchup } from "@/lib/upcoming-matchups";
 
 type Search = Record<string, string | string[] | undefined>;
-type TeamOption = { id: number; abbreviation: string; name: string };
+type TeamOption = { id: number; abbreviation: string; name: string; externalId?: string };
 
 export default async function MatchupPage({ searchParams }: { searchParams: Promise<Search> }) {
   const params = await searchParams;
@@ -19,7 +19,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
   const mt = t.matchup;
   const league = String(params.league ?? "NBA").toUpperCase();
   const [teamsResult, upcomingResult] = await Promise.all([loadTeams(league), loadUpcoming(league)]);
-  const teams = teamsResult.teams;
+  const teams = teamsResult.teams.length ? teamsResult.teams : teamsFromUpcoming(upcomingResult.matchups);
   const selectedUpcoming = upcomingResult.matchups.find((matchup) => matchup.id === String(params.upcomingGameId ?? ""));
   const selectedTeams = selectedUpcoming ? findTeamsForUpcoming(teams, selectedUpcoming) : null;
   const homeTeamId = Number(selectedTeams?.homeTeamId ?? params.homeTeamId ?? teams[0]?.id ?? 0);
@@ -154,7 +154,7 @@ async function loadTeams(league: string): Promise<{ teams: TeamOption[]; error: 
     const teams = await prisma.team.findMany({
       where: { league },
       orderBy: [{ city: "asc" }, { name: "asc" }],
-      select: { id: true, abbreviation: true, name: true }
+      select: { id: true, abbreviation: true, name: true, externalId: true }
     });
     return { teams, error: false };
   } catch (error) {
@@ -201,10 +201,51 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
 }
 
 function findTeamsForUpcoming(teams: TeamOption[], matchup: UpcomingMatchup) {
-  const home = teams.find((team) => team.abbreviation === matchup.homeAbbreviation || team.name === matchup.homeTeam);
-  const away = teams.find((team) => team.abbreviation === matchup.awayAbbreviation || team.name === matchup.awayTeam);
+  const home = findTeamForMatchup(teams, matchup, "home");
+  const away = findTeamForMatchup(teams, matchup, "away");
   if (!home || !away) return null;
   return { homeTeamId: home.id, awayTeamId: away.id };
+}
+
+function findTeamForMatchup(teams: TeamOption[], matchup: UpcomingMatchup, side: "home" | "away") {
+  const abbreviation = side === "home" ? matchup.homeAbbreviation : matchup.awayAbbreviation;
+  const name = side === "home" ? matchup.homeTeam : matchup.awayTeam;
+  const externalId = side === "home" ? matchup.homeExternalId : matchup.awayExternalId;
+  return teams.find(
+    (team) =>
+      team.externalId === externalId ||
+      team.abbreviation === abbreviation ||
+      team.name === name ||
+      team.name.toLowerCase().includes(String(name).toLowerCase()) ||
+      String(name).toLowerCase().includes(team.name.toLowerCase())
+  );
+}
+
+function teamsFromUpcoming(matchups: UpcomingMatchup[]): TeamOption[] {
+  const teams = new Map<string, TeamOption>();
+  for (const matchup of matchups) {
+    addUpcomingTeam(teams, matchup.homeExternalId ?? matchup.homeAbbreviation, matchup.homeAbbreviation, matchup.homeTeam);
+    addUpcomingTeam(teams, matchup.awayExternalId ?? matchup.awayAbbreviation, matchup.awayAbbreviation, matchup.awayTeam);
+  }
+  return Array.from(teams.values());
+}
+
+function addUpcomingTeam(teams: Map<string, TeamOption>, key: string | undefined, abbreviation: string, name: string) {
+  if (!key || teams.has(key)) return;
+  teams.set(key, {
+    id: stableSyntheticId(key),
+    externalId: key,
+    abbreviation: abbreviation || name,
+    name
+  });
+}
+
+function stableSyntheticId(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) % 100000;
+  }
+  return -Math.max(1, hash);
 }
 
 function UpcomingCard({ matchup, label, lang }: { matchup: UpcomingMatchup; label: string; lang: "zh" | "en" }) {

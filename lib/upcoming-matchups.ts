@@ -6,6 +6,8 @@ export type UpcomingMatchup = {
   homeTeam: string;
   awayAbbreviation: string;
   homeAbbreviation: string;
+  awayExternalId?: string;
+  homeExternalId?: string;
   status: string;
   dataSource: string;
   seasonType?: "Regular Season" | "Playoffs";
@@ -50,6 +52,8 @@ async function fetchMlbUpcoming(): Promise<UpcomingMatchup[]> {
       homeTeam: game.teams?.home?.team?.name ?? "",
       awayAbbreviation: mlbAbbreviation(game.teams?.away?.team?.name),
       homeAbbreviation: mlbAbbreviation(game.teams?.home?.team?.name),
+      awayExternalId: String(game.teams?.away?.team?.id ?? ""),
+      homeExternalId: String(game.teams?.home?.team?.id ?? ""),
       status: game.status?.detailedState ?? "Scheduled",
       dataSource: "MLB StatsAPI schedule",
       seasonType: game.gameType === "P" ? "Playoffs" : "Regular Season"
@@ -88,6 +92,8 @@ async function fetchNbaUpcoming(): Promise<UpcomingMatchup[]> {
           homeTeam: nbaTeamName(String(game.HOME_TEAM_ID ?? "")),
           awayAbbreviation: nbaAbbreviation(String(game.VISITOR_TEAM_ID ?? "")),
           homeAbbreviation: nbaAbbreviation(String(game.HOME_TEAM_ID ?? "")),
+          awayExternalId: String(game.VISITOR_TEAM_ID ?? ""),
+          homeExternalId: String(game.HOME_TEAM_ID ?? ""),
           status: String(game.GAME_STATUS_TEXT ?? "Scheduled"),
           dataSource: "NBA.com Stats API scoreboardv2",
           seasonType: nbaSeasonTypeFromGameId(game.GAME_ID)
@@ -119,6 +125,8 @@ async function fetchNbaUpcomingFromScheduleLeague(): Promise<UpcomingMatchup[]> 
       homeTeam: nbaScheduleTeamName(game.homeTeam),
       awayAbbreviation: String(game.awayTeam?.teamTricode ?? ""),
       homeAbbreviation: String(game.homeTeam?.teamTricode ?? ""),
+      awayExternalId: String(game.awayTeam?.teamId ?? ""),
+      homeExternalId: String(game.homeTeam?.teamId ?? ""),
       status: String(game.gameStatusText ?? "Scheduled"),
       dataSource: "NBA.com CDN scheduleLeagueV2",
       seasonType: isNbaPlayoffGame(game) ? "Playoffs" : "Regular Season"
