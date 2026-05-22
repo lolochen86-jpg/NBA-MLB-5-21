@@ -5,6 +5,7 @@ import { StatCard } from "@/components/StatCard";
 import { dict, getLang, withLang } from "@/lib/i18n";
 import { getMatchupSummary } from "@/lib/matchup";
 import { prisma } from "@/lib/prisma";
+import { teamLabel, teamName } from "@/lib/team-names";
 import { fetchUpcomingMatchups, type UpcomingMatchup } from "@/lib/upcoming-matchups";
 
 type Search = Record<string, string | string[] | undefined>;
@@ -87,14 +88,14 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
             ["", upcomingResult.error ? t.unavailable : mt.manual],
             ...upcomingResult.matchups.map((matchup) => [
               matchup.id,
-              `${formatDate(matchup.gameDate, lang)} ${matchup.awayAbbreviation || matchup.awayTeam} @ ${matchup.homeAbbreviation || matchup.homeTeam}`
+              `${formatDate(matchup.gameDate, lang)} ${matchup.awayAbbreviation || matchup.awayTeam} ${teamName(matchup.awayTeam, lang)} @ ${matchup.homeAbbreviation || matchup.homeTeam} ${teamName(matchup.homeTeam, lang)}`
             ])
           ]}
         />
         <TextInput name="season" label={mt.season} value={season} />
         <Select name="seasonType" label={mt.seasonType} value={seasonType} options={[["Regular Season", mt.regular], ["Playoffs", mt.playoffs]]} />
-        <Select name="homeTeamId" label={mt.homeTeam} value={String(homeTeamId)} options={teams.map((team) => [String(team.id), `${team.abbreviation} ${team.name}`])} />
-        <Select name="awayTeamId" label={mt.awayTeam} value={String(awayTeamId)} options={teams.map((team) => [String(team.id), `${team.abbreviation} ${team.name}`])} />
+        <Select name="homeTeamId" label={mt.homeTeam} value={String(homeTeamId)} options={teams.map((team) => [String(team.id), teamLabel(team, lang)])} />
+        <Select name="awayTeamId" label={mt.awayTeam} value={String(awayTeamId)} options={teams.map((team) => [String(team.id), teamLabel(team, lang)])} />
         <Select name="rangeType" label={mt.rangeType} value={rangeType} options={[["games", mt.recentGames], ["days", mt.recentDays]]} />
         <Select name="rangeValue" label="5 / 10 / 15" value={String(rangeValue)} options={[["5", "5"], ["10", "10"], ["15", "15"]]} />
         <Select name="includeOvertime" label={mt.includeOt} value={String(includeOvertime)} options={[["true", mt.yes], ["false", mt.no]]} />
@@ -119,9 +120,9 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
           ) : null}
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <StatCard title={mt.homeAvgScored} value={fmt(summary.homeTeamSummary.averageScored)} helper={summary.homeTeamSummary.team} />
+            <StatCard title={mt.homeAvgScored} value={fmt(summary.homeTeamSummary.averageScored)} helper={teamName(summary.homeTeamSummary.team, lang)} />
             <StatCard title={mt.homeAvgAllowed} value={fmt(summary.homeTeamSummary.averageAllowed)} helper={`${summary.homeTeamSummary.wins}-${summary.homeTeamSummary.losses}`} />
-            <StatCard title={mt.awayAvgScored} value={fmt(summary.awayTeamSummary.averageScored)} helper={summary.awayTeamSummary.team} />
+            <StatCard title={mt.awayAvgScored} value={fmt(summary.awayTeamSummary.averageScored)} helper={teamName(summary.awayTeamSummary.team, lang)} />
             <StatCard title={mt.awayAvgAllowed} value={fmt(summary.awayTeamSummary.averageAllowed)} helper={`${summary.awayTeamSummary.wins}-${summary.awayTeamSummary.losses}`} />
           </div>
 
@@ -180,7 +181,7 @@ function UpcomingCard({ matchup, label, lang }: { matchup: UpcomingMatchup; labe
     <div className="mt-6 rounded-lg border border-blue-100 bg-white p-5 shadow-sm">
       <div className="text-sm font-bold text-blue-700">{label}</div>
       <div className="mt-2 text-2xl font-black text-ink">
-        {matchup.awayTeam} @ {matchup.homeTeam}
+        {teamName(matchup.awayTeam, lang)} @ {teamName(matchup.homeTeam, lang)}
       </div>
       <div className="mt-2 text-base text-slate-600">
         {formatDate(matchup.gameDate, lang)} · {matchup.status} · {matchup.dataSource}
@@ -221,7 +222,7 @@ function SummaryTable({ rows, headers, yes, no, lang }: { rows: any[]; headers: 
         <tbody>
           {rows.map((row) => (
             <tr key={row.teamId} className="border-t border-slate-100">
-              <td className="px-4 py-3 font-bold">{row.team}</td>
+              <td className="px-4 py-3 font-bold">{teamName(row.team, lang)}</td>
               <td className="numeric px-4 py-3 text-right">{row.games}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.averageScored)}</td>
               <td className="numeric px-4 py-3 text-right">{fmt(row.averageAllowed)}</td>
@@ -252,8 +253,8 @@ function GameLogTable({ rows, headers, yes, no, unavailable, lang }: { rows: any
           {rows.length ? rows.map((row) => (
             <tr key={`${row.gameId}-${row.team}`} className="border-t border-slate-100">
               <td className="numeric px-4 py-3">{new Date(row.date).toLocaleDateString(lang === "zh" ? "zh-TW" : "en-US")}</td>
-              <td className="px-4 py-3 font-bold">{row.team}</td>
-              <td className="px-4 py-3">{row.opponent}</td>
+              <td className="px-4 py-3 font-bold">{teamName(row.team, lang)}</td>
+              <td className="px-4 py-3">{teamName(row.opponent, lang)}</td>
               <td className="px-4 py-3">{row.homeAway}</td>
               <td className="numeric px-4 py-3 text-right">{row.scored}</td>
               <td className="numeric px-4 py-3 text-right">{row.allowed}</td>

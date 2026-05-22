@@ -3,6 +3,7 @@ import { CurrentSeasonDownloads } from "@/components/CurrentSeasonDownloads";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { dict, getLang, withLang } from "@/lib/i18n";
 import { prisma } from "@/lib/prisma";
+import { teamName } from "@/lib/team-names";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +11,8 @@ type Search = Record<string, string | string[] | undefined>;
 type UpcomingGame = {
   id: number;
   gameDate: Date;
-  homeTeam: { abbreviation: string };
-  awayTeam: { abbreviation: string };
+  homeTeam: { abbreviation: string; name: string };
+  awayTeam: { abbreviation: string; name: string };
 };
 type SyncRow = {
   id: number;
@@ -64,8 +65,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       <CurrentSeasonDownloads lang={lang} />
 
       <section className="mx-auto grid max-w-7xl gap-6 px-5 pb-12 lg:grid-cols-3">
-        <ScheduleCard title={t.dashboard.nbaUpcoming} games={data.nbaUpcoming} unavailable={t.unavailable} />
-        <ScheduleCard title={t.dashboard.mlbUpcoming} games={data.mlbUpcoming} unavailable={t.unavailable} />
+        <ScheduleCard title={t.dashboard.nbaUpcoming} games={data.nbaUpcoming} unavailable={t.unavailable} lang={lang} />
+        <ScheduleCard title={t.dashboard.mlbUpcoming} games={data.mlbUpcoming} unavailable={t.unavailable} lang={lang} />
         <div className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm">
           <h2 className="text-2xl font-black text-ink">{t.dashboard.syncStatus}</h2>
           <div className="mt-4 space-y-3">
@@ -120,7 +121,7 @@ async function loadDashboardData(): Promise<{
   }
 }
 
-function ScheduleCard({ title, games, unavailable }: { title: string; games: UpcomingGame[]; unavailable: string }) {
+function ScheduleCard({ title, games, unavailable, lang }: { title: string; games: UpcomingGame[]; unavailable: string; lang: "zh" | "en" }) {
   return (
     <div className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm">
       <h2 className="text-2xl font-black text-ink">{title}</h2>
@@ -129,7 +130,7 @@ function ScheduleCard({ title, games, unavailable }: { title: string; games: Upc
           games.map((game) => (
             <div key={game.id} className="rounded-md border border-slate-100 p-4">
               <div className="font-bold">
-                {game.awayTeam.abbreviation} @ {game.homeTeam.abbreviation}
+                {game.awayTeam.abbreviation} {teamName(game.awayTeam.name, lang)} @ {game.homeTeam.abbreviation} {teamName(game.homeTeam.name, lang)}
               </div>
               <div className="numeric text-sm text-slate-500">{game.gameDate.toLocaleString("zh-TW")}</div>
             </div>

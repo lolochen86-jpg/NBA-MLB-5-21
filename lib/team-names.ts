@@ -1,0 +1,72 @@
+import { type Lang } from "@/lib/i18n";
+
+const zhTeamNames: Record<string, string> = {
+  "Atlanta Hawks": "亞特蘭大老鷹",
+  "Boston Celtics": "波士頓塞爾提克",
+  "Brooklyn Nets": "布魯克林籃網",
+  "Charlotte Hornets": "夏洛特黃蜂",
+  "Chicago Bulls": "芝加哥公牛",
+  "Cleveland Cavaliers": "克里夫蘭騎士",
+  "Dallas Mavericks": "達拉斯獨行俠",
+  "Denver Nuggets": "丹佛金塊",
+  "Detroit Pistons": "底特律活塞",
+  "Golden State Warriors": "金州勇士",
+  "Houston Rockets": "休士頓火箭",
+  "Indiana Pacers": "印第安納溜馬",
+  "LA Clippers": "洛杉磯快艇",
+  "Los Angeles Lakers": "洛杉磯湖人",
+  "Memphis Grizzlies": "曼菲斯灰熊",
+  "Miami Heat": "邁阿密熱火",
+  "Milwaukee Bucks": "密爾瓦基公鹿",
+  "Minnesota Timberwolves": "明尼蘇達灰狼",
+  "New Orleans Pelicans": "紐奧良鵜鶘",
+  "New York Knicks": "紐約尼克",
+  "Oklahoma City Thunder": "奧克拉荷馬雷霆",
+  "Orlando Magic": "奧蘭多魔術",
+  "Philadelphia 76ers": "費城 76 人",
+  "Phoenix Suns": "鳳凰城太陽",
+  "Portland Trail Blazers": "波特蘭拓荒者",
+  "Sacramento Kings": "沙加緬度國王",
+  "San Antonio Spurs": "聖安東尼奧馬刺",
+  "Toronto Raptors": "多倫多暴龍",
+  "Utah Jazz": "猶他爵士",
+  "Washington Wizards": "華盛頓巫師",
+  "Arizona Diamondbacks": "亞利桑那響尾蛇",
+  "Atlanta Braves": "亞特蘭大勇士",
+  "Baltimore Orioles": "巴爾的摩金鶯",
+  "Boston Red Sox": "波士頓紅襪",
+  "Chicago Cubs": "芝加哥小熊",
+  "Chicago White Sox": "芝加哥白襪",
+  "Cincinnati Reds": "辛辛那提紅人",
+  "Cleveland Guardians": "克里夫蘭守護者",
+  "Colorado Rockies": "科羅拉多洛磯",
+  "Detroit Tigers": "底特律老虎",
+  "Houston Astros": "休士頓太空人",
+  "Kansas City Royals": "堪薩斯市皇家",
+  "Los Angeles Angels": "洛杉磯天使",
+  "Los Angeles Dodgers": "洛杉磯道奇",
+  "Miami Marlins": "邁阿密馬林魚",
+  "Milwaukee Brewers": "密爾瓦基釀酒人",
+  "Minnesota Twins": "明尼蘇達雙城",
+  "New York Mets": "紐約大都會",
+  "New York Yankees": "紐約洋基",
+  Athletics: "運動家",
+  "Philadelphia Phillies": "費城費城人",
+  "Pittsburgh Pirates": "匹茲堡海盜",
+  "San Diego Padres": "聖地牙哥教士",
+  "San Francisco Giants": "舊金山巨人",
+  "Seattle Mariners": "西雅圖水手",
+  "St. Louis Cardinals": "聖路易紅雀",
+  "Tampa Bay Rays": "坦帕灣光芒",
+  "Texas Rangers": "德州遊騎兵",
+  "Toronto Blue Jays": "多倫多藍鳥",
+  "Washington Nationals": "華盛頓國民"
+};
+
+export function teamName(name: string, lang: Lang) {
+  return lang === "zh" ? zhTeamNames[name] ?? name : name;
+}
+
+export function teamLabel(team: { abbreviation: string; name: string }, lang: Lang) {
+  return `${team.abbreviation} ${teamName(team.name, lang)}`;
+}
