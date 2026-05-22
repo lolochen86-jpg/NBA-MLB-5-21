@@ -12,6 +12,7 @@
     "sqlite:init": "node scripts/init-sqlite.mjs",
     "seed": "tsx prisma/seed.ts",
     "import:games": "tsx scripts/import-games.ts",
+    "sync:daily": "tsx scripts/sync-daily.ts --days=1",
     "sync:nba": "tsx scripts/sync-nba.ts",
     "sync:mlb": "tsx scripts/sync-mlb.ts"
   },

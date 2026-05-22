@@ -99,15 +99,22 @@ async function loadDashboardData(): Promise<{
   error: boolean;
 }> {
   try {
+    const now = new Date();
+    const soon = new Date(now);
+    soon.setUTCDate(soon.getUTCDate() + 7);
+    const upcomingWhere = {
+      gameDate: { gte: now, lte: soon },
+      status: { notIn: ["FINAL", "Postponed"] }
+    };
     const [nbaUpcoming, mlbUpcoming, syncRows] = await Promise.all([
       prisma.game.findMany({
-        where: { league: "NBA", gameDate: { gte: new Date() }, status: { not: "FINAL" } },
+        where: { league: "NBA", ...upcomingWhere },
         include: { homeTeam: true, awayTeam: true },
         orderBy: { gameDate: "asc" },
         take: 5
       }),
       prisma.game.findMany({
-        where: { league: "MLB", gameDate: { gte: new Date() }, status: { not: "FINAL" } },
+        where: { league: "MLB", ...upcomingWhere },
         include: { homeTeam: true, awayTeam: true },
         orderBy: { gameDate: "asc" },
         take: 5

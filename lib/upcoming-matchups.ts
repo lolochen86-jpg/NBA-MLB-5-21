@@ -8,6 +8,7 @@ export type UpcomingMatchup = {
   homeAbbreviation: string;
   status: string;
   dataSource: string;
+  seasonType?: "Regular Season" | "Playoffs";
 };
 
 type NbaHeaderRow = Record<string, string | number | null>;
@@ -18,6 +19,7 @@ const NBA_HEADERS = {
   Referer: "https://www.nba.com/",
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
 };
+const NBA_SCHEDULE_URL = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json";
 
 export async function fetchUpcomingMatchups(league: string): Promise<UpcomingMatchup[]> {
   if (league.toUpperCase() === "MLB") return fetchMlbUpcoming();
@@ -49,11 +51,15 @@ async function fetchMlbUpcoming(): Promise<UpcomingMatchup[]> {
       awayAbbreviation: mlbAbbreviation(game.teams?.away?.team?.name),
       homeAbbreviation: mlbAbbreviation(game.teams?.home?.team?.name),
       status: game.status?.detailedState ?? "Scheduled",
-      dataSource: "MLB StatsAPI schedule"
+      dataSource: "MLB StatsAPI schedule",
+      seasonType: game.gameType === "P" ? "Playoffs" : "Regular Season"
     }));
 }
 
 async function fetchNbaUpcoming(): Promise<UpcomingMatchup[]> {
+  const scheduleLeague = await fetchNbaUpcomingFromScheduleLeague();
+  if (scheduleLeague.length) return scheduleLeague;
+
   const allGames: UpcomingMatchup[] = [];
   for (let dayOffset = 0; dayOffset < 5; dayOffset += 1) {
     const date = addDaysIsoDate(dayOffset);
@@ -83,12 +89,49 @@ async function fetchNbaUpcoming(): Promise<UpcomingMatchup[]> {
           awayAbbreviation: nbaAbbreviation(String(game.VISITOR_TEAM_ID ?? "")),
           homeAbbreviation: nbaAbbreviation(String(game.HOME_TEAM_ID ?? "")),
           status: String(game.GAME_STATUS_TEXT ?? "Scheduled"),
-          dataSource: "NBA.com Stats API scoreboardv2"
+          dataSource: "NBA.com Stats API scoreboardv2",
+          seasonType: nbaSeasonTypeFromGameId(game.GAME_ID)
         }))
     );
     if (allGames.length >= 12) break;
   }
   return allGames.slice(0, 12);
+}
+
+async function fetchNbaUpcomingFromScheduleLeague(): Promise<UpcomingMatchup[]> {
+  const response = await fetch(NBA_SCHEDULE_URL, { headers: NBA_HEADERS, next: { revalidate: 60 * 15 } });
+  if (!response.ok) return [];
+
+  const payload = await response.json();
+  const games = (payload.leagueSchedule?.gameDates ?? []).flatMap((date: any) => date.games ?? []);
+  const now = Date.now();
+
+  return games
+    .filter((game: any) => Number(game.gameStatus) !== 3)
+    .filter((game: any) => Date.parse(game.gameDateTimeUTC ?? game.gameDateUTC ?? "") >= now)
+    .sort((a: any, b: any) => Date.parse(a.gameDateTimeUTC ?? a.gameDateUTC ?? "") - Date.parse(b.gameDateTimeUTC ?? b.gameDateUTC ?? ""))
+    .slice(0, 12)
+    .map((game: any) => ({
+      id: String(game.gameId),
+      league: "NBA" as const,
+      gameDate: String(game.gameDateTimeUTC ?? game.gameDateUTC ?? ""),
+      awayTeam: nbaScheduleTeamName(game.awayTeam),
+      homeTeam: nbaScheduleTeamName(game.homeTeam),
+      awayAbbreviation: String(game.awayTeam?.teamTricode ?? ""),
+      homeAbbreviation: String(game.homeTeam?.teamTricode ?? ""),
+      status: String(game.gameStatusText ?? "Scheduled"),
+      dataSource: "NBA.com CDN scheduleLeagueV2",
+      seasonType: isNbaPlayoffGame(game) ? "Playoffs" : "Regular Season"
+    }));
+}
+
+function isNbaPlayoffGame(game: any) {
+  const label = `${game.gameLabel ?? ""} ${game.gameSubLabel ?? ""} ${game.seriesText ?? ""}`.toLowerCase();
+  return String(game.gameId ?? "").startsWith("004") || label.includes("playoff") || label.includes("conference") || label.includes("final");
+}
+
+function nbaSeasonTypeFromGameId(gameId: unknown): UpcomingMatchup["seasonType"] {
+  return String(gameId ?? "").startsWith("004") ? "Playoffs" : "Regular Season";
 }
 
 function isUpcomingStatus(status: any) {
@@ -158,6 +201,10 @@ function nbaAbbreviation(id: string) {
 
 function nbaTeamName(id: string) {
   return nbaTeamsById[id]?.[1] ?? "";
+}
+
+function nbaScheduleTeamName(team: any) {
+  return [team?.teamCity, team?.teamName].filter(Boolean).join(" ");
 }
 
 const mlbNameToAbbreviation: Record<string, string> = {

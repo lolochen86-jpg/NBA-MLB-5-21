@@ -4,6 +4,7 @@ import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { StatCard } from "@/components/StatCard";
 import { dict, getLang, withLang } from "@/lib/i18n";
 import { getMatchupSummary } from "@/lib/matchup";
+import { getMlbMatchupDetails } from "@/lib/mlb-matchup-details";
 import { prisma } from "@/lib/prisma";
 import { teamLabel, teamName } from "@/lib/team-names";
 import { fetchUpcomingMatchups, type UpcomingMatchup } from "@/lib/upcoming-matchups";
@@ -24,7 +25,10 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
   const homeTeamId = Number(selectedTeams?.homeTeamId ?? params.homeTeamId ?? teams[0]?.id ?? 0);
   const awayTeamId = Number(selectedTeams?.awayTeamId ?? params.awayTeamId ?? teams[1]?.id ?? 0);
   const season = String(params.season ?? (league === "NBA" ? "2025-26" : "2026"));
-  const seasonType = String(params.seasonType ?? "Regular Season");
+  const defaultSeasonType = league === "NBA" && upcomingResult.matchups.some((matchup) => matchup.seasonType === "Playoffs") ? "Playoffs" : "Regular Season";
+  const hasManualTeams = Boolean(params.homeTeamId || params.awayTeamId);
+  const shouldPreferPlayoffs = league === "NBA" && !hasManualTeams && defaultSeasonType === "Playoffs";
+  const seasonType = selectedUpcoming?.seasonType ?? (shouldPreferPlayoffs ? "Playoffs" : String(params.seasonType ?? defaultSeasonType));
   const rangeType = String(params.rangeType ?? "games") as "games" | "days";
   const rangeValue = Number(params.rangeValue ?? 5);
   const includeOvertime = String(params.includeOvertime ?? "true") === "true";
@@ -44,6 +48,10 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
           includeOvertime,
           splitHomeAway
         })
+      : null;
+  const mlbDetails =
+    league === "MLB" && shouldAnalyze && homeTeamId && awayTeamId
+      ? await getSafeMlbDetails({ homeTeamId, awayTeamId, upcomingGameId: params.upcomingGameId, season })
       : null;
 
   const query = new URLSearchParams({
@@ -130,6 +138,8 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
           </div>
 
           <SummaryTable rows={[summary.homeTeamSummary, summary.awayTeamSummary]} headers={mt.tableHeaders} yes={mt.yes} no={mt.no} lang={lang} />
+          {mlbDetails ? <MlbDetailPanel details={mlbDetails} lang={lang} /> : null}
+          {mlbDetails ? <MlbPredictionPanel summary={summary} details={mlbDetails} lang={lang} /> : null}
           <GameLogTable rows={summary.gameLogs} headers={mt.logHeaders} yes={mt.yes} no={mt.no} unavailable={t.unavailable} lang={lang} />
         </section>
       ) : (
@@ -170,6 +180,24 @@ async function getSafeSummary(input: Parameters<typeof getMatchupSummary>[0]) {
     console.error("Matchup summary unavailable", error);
     return { error: true };
   }
+}
+
+async function getSafeMlbDetails(input: Parameters<typeof getMlbMatchupDetails>[0]) {
+  try {
+    return await withTimeout(getMlbMatchupDetails(input), 2500);
+  } catch (error) {
+    if (!(error instanceof Error && error.message === "Timed out")) {
+      console.error("MLB matchup details unavailable", error);
+    }
+    return null;
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error("Timed out")), timeoutMs))
+  ]);
 }
 
 function findTeamsForUpcoming(teams: TeamOption[], matchup: UpcomingMatchup) {
@@ -245,6 +273,193 @@ function SummaryTable({ rows, headers, yes, no, lang }: { rows: any[]; headers: 
   );
 }
 
+function MlbDetailPanel({ details, lang }: { details: any; lang: "zh" | "en" }) {
+  const labels =
+    lang === "zh"
+      ? {
+          title: "先發投手、牛棚與傷兵野手",
+          team: "球隊",
+          starter: "先發投手",
+          starterStats: "先發基本數據",
+          bullpenEra: "牛棚防禦率",
+          injuredHitters: "傷病重要野手",
+          unavailable: "目前無法取得"
+        }
+      : {
+          title: "Starting Pitchers, Bullpen and Injured Hitters",
+          team: "Team",
+          starter: "Starter",
+          starterStats: "Starter Stats",
+          bullpenEra: "Bullpen ERA",
+          injuredHitters: "Key Injured Hitters",
+          unavailable: "Unavailable"
+        };
+  const rows = [details.away, details.home].filter(Boolean);
+
+  return (
+    <section className="rounded-lg border border-sky-100 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-4 py-3 text-lg font-black text-ink">{labels.title}</div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] text-left text-base">
+          <thead className="bg-skySoft text-slate-700">
+            <tr>
+              <th className="px-4 py-3">{labels.team}</th>
+              <th className="px-4 py-3">{labels.starter}</th>
+              <th className="px-4 py-3">{labels.starterStats}</th>
+              <th className="px-4 py-3">{labels.bullpenEra}</th>
+              <th className="px-4 py-3">{labels.injuredHitters}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row: any) => (
+              <tr key={row.teamId} className="border-t border-slate-100 align-top">
+                <td className="px-4 py-3 font-bold">{teamName(row.teamName, lang)}</td>
+                <td className="px-4 py-3">{row.starter?.name ?? labels.unavailable}</td>
+                <td className="px-4 py-3">
+                  {row.starter ? (
+                    <div className="space-y-1">
+                      <div>ERA {textOrDash(row.starter.era)} / WHIP {textOrDash(row.starter.whip)} / IP {textOrDash(row.starter.inningsPitched)}</div>
+                      <div>GS {textOrDash(row.starter.gamesStarted)} / W-L {textOrDash(row.starter.wins)}-{textOrDash(row.starter.losses)} / SO-BB {textOrDash(row.starter.strikeOuts)}-{textOrDash(row.starter.baseOnBalls)}</div>
+                    </div>
+                  ) : (
+                    labels.unavailable
+                  )}
+                </td>
+                <td className="numeric px-4 py-3 text-right">{textOrDash(row.bullpenEra)}</td>
+                <td className="px-4 py-3">
+                  {row.injuredHitters?.length ? (
+                    <div className="space-y-2">
+                      {row.injuredHitters.map((hitter: any) => (
+                        <div key={hitter.id}>
+                          <div className="font-bold">{hitter.name}</div>
+                          <div className="text-sm text-slate-600">
+                            AVG {textOrDash(hitter.avg)} / OPS {textOrDash(hitter.ops)} / HR {textOrDash(hitter.homeRuns)} / RBI {textOrDash(hitter.rbi)} / AB {textOrDash(hitter.atBats)}
+                          </div>
+                          <div className="text-xs text-amber-700">{hitter.note}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    labels.unavailable
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function MlbPredictionPanel({ summary, details, lang }: { summary: any; details: any; lang: "zh" | "en" }) {
+  const away = buildMlbPrediction(summary.awayTeamSummary, summary.homeTeamSummary, details.away, details.home, "AWAY");
+  const home = buildMlbPrediction(summary.homeTeamSummary, summary.awayTeamSummary, details.home, details.away, "HOME");
+  const confidence = predictionConfidence([away, home], details);
+  const labels =
+    lang === "zh"
+      ? {
+          title: "預測比分",
+          team: "球隊",
+          projected: "預估得分",
+          range: "建議區間",
+          factors: "主要依據",
+          confidence: "信心",
+          note: "這是依近期得失分、主客場、先發投手、牛棚與傷兵做出的估算，僅供比賽分析參考。"
+        }
+      : {
+          title: "Projected Score",
+          team: "Team",
+          projected: "Projected Runs",
+          range: "Range",
+          factors: "Main Factors",
+          confidence: "Confidence",
+          note: "Estimate based on recent scoring, venue split, starters, bullpen and injuries. Use as analysis context only."
+        };
+  const rows = [away, home];
+
+  return (
+    <section className="rounded-lg border border-sky-100 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+        <div className="text-lg font-black text-ink">{labels.title}</div>
+        <div className="rounded-md bg-blue-50 px-3 py-1 text-sm font-bold text-blue-700">
+          {labels.confidence}: {confidence}
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] text-left text-base">
+          <thead className="bg-skySoft text-slate-700">
+            <tr>
+              <th className="px-4 py-3">{labels.team}</th>
+              <th className="px-4 py-3 text-right">{labels.projected}</th>
+              <th className="px-4 py-3">{labels.range}</th>
+              <th className="px-4 py-3">{labels.factors}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.team} className="border-t border-slate-100">
+                <td className="px-4 py-3 font-bold">{teamName(row.team, lang)}</td>
+                <td className="numeric px-4 py-3 text-right text-xl font-black">{row.projected.toFixed(1)}</td>
+                <td className="numeric px-4 py-3">{row.low}-{row.high}</td>
+                <td className="px-4 py-3 text-sm text-slate-600">{row.factors.join(" / ")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="border-t border-slate-100 px-4 py-3 text-sm text-slate-500">{labels.note}</div>
+    </section>
+  );
+}
+
+function buildMlbPrediction(team: any, opponent: any, teamDetails: any, opponentDetails: any, side: "HOME" | "AWAY") {
+  const recentOffense = numberOr(team.averageScored, 4.2);
+  const opponentDefense = numberOr(opponent.averageAllowed, 4.2);
+  const venueAverage = side === "HOME" ? numberOr(team.homeAverageScored, recentOffense) : numberOr(team.awayAverageScored, recentOffense);
+  const opponentStarterEra = numberOr(opponentDetails?.starter?.era, opponentDefense);
+  const opponentBullpenEra = numberOr(opponentDetails?.bullpenEra, opponentDefense);
+  const injuryPenalty = Math.min(0.8, (teamDetails?.injuredHitters?.length ?? 0) * 0.25);
+
+  const raw =
+    recentOffense * 0.28 +
+    opponentDefense * 0.22 +
+    venueAverage * 0.18 +
+    opponentStarterEra * 0.18 +
+    opponentBullpenEra * 0.14 -
+    injuryPenalty;
+  const projected = clamp(roundOne(raw), 0.5, 12);
+  const spread = predictionSpread(team.games, opponentDetails);
+
+  return {
+    team: team.team,
+    projected,
+    low: Math.max(0, Math.floor(projected - spread)),
+    high: Math.ceil(projected + spread),
+    factors: [
+      `近況 ${fmt(team.averageScored)}`,
+      `${side === "HOME" ? "主場" : "客場"} ${fmt(venueAverage)}`,
+      `對方先發 ERA ${textOrDash(opponentDetails?.starter?.era)}`,
+      `對方牛棚 ERA ${textOrDash(opponentDetails?.bullpenEra)}`
+    ]
+  };
+}
+
+function predictionSpread(games: number, opponentDetails: any) {
+  let spread = games >= 10 ? 1.5 : 2;
+  if (!opponentDetails?.starter) spread += 0.4;
+  if (!opponentDetails?.bullpenEra) spread += 0.3;
+  return spread;
+}
+
+function predictionConfidence(rows: Array<{ high: number; low: number }>, details: any) {
+  const hasStarters = Boolean(details.home?.starter && details.away?.starter);
+  const hasBullpens = Boolean(details.home?.bullpenEra && details.away?.bullpenEra);
+  const averageRange = rows.reduce((sum, row) => sum + (row.high - row.low), 0) / rows.length;
+  if (hasStarters && hasBullpens && averageRange <= 4) return "中";
+  return "低";
+}
+
 function GameLogTable({ rows, headers, yes, no, unavailable, lang }: { rows: any[]; headers: readonly string[]; yes: string; no: string; unavailable: string; lang: "zh" | "en" }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-sky-100 bg-white shadow-sm">
@@ -281,6 +496,23 @@ function Notice({ text }: { text: string }) {
 
 function fmt(value: number | null | undefined) {
   return value === null || value === undefined ? "-" : value.toFixed(2);
+}
+
+function textOrDash(value: string | number | null | undefined) {
+  return value === null || value === undefined || value === "" ? "-" : value;
+}
+
+function numberOr(value: unknown, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function roundOne(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function formatDate(value: string, lang: "zh" | "en") {

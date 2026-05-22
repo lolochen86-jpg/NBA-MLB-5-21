@@ -10,6 +10,7 @@ const NBA_HEADERS = {
   Referer: "https://www.nba.com/",
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
 };
+const currentSeasonCache = new Map<string, ReturnType<typeof fetchCurrentSeasonGames>>();
 
 export type TeamSummary = {
   teamId: number;
@@ -180,7 +181,7 @@ async function buildLogsFromCurrentSeason(
     return buildNbaLogsFromLeagueGameLog(input, team);
   }
 
-  const allGames = await fetchCurrentSeasonGames({
+  const allGames = await fetchCachedCurrentSeasonGames({
     league: input.league,
     season: input.season,
     seasonType: input.seasonType
@@ -224,6 +225,15 @@ async function buildLogsFromCurrentSeason(
         source: game.dataSource
       } satisfies GameLog;
     });
+}
+
+function fetchCachedCurrentSeasonGames(input: { league: string; season: string; seasonType: string }) {
+  const key = `${input.league}:${input.season}:${input.seasonType}`;
+  const cached = currentSeasonCache.get(key);
+  if (cached) return cached;
+  const promise = fetchCurrentSeasonGames(input);
+  currentSeasonCache.set(key, promise);
+  return promise;
 }
 
 async function buildNbaLogsFromLeagueGameLog(
