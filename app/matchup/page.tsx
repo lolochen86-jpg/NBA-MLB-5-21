@@ -7,6 +7,7 @@ import { getMatchupSummary } from "@/lib/matchup";
 import { getMlbMatchupDetails } from "@/lib/mlb-matchup-details";
 import { prisma } from "@/lib/prisma";
 import { teamLabel, teamName } from "@/lib/team-names";
+import { fetchCurrentSeasonGames } from "@/lib/current-season";
 import { fetchUpcomingMatchups, type UpcomingMatchup } from "@/lib/upcoming-matchups";
 
 type Search = Record<string, string | string[] | undefined>;
@@ -34,9 +35,19 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
   const includeOvertime = String(params.includeOvertime ?? "true") === "true";
   const splitHomeAway = String(params.splitHomeAway ?? "false") === "true";
   const shouldAnalyze = Boolean(params.analyze === "true" || params.upcomingGameId || params.homeTeamId || params.awayTeamId);
+  const usesSyntheticTeams = homeTeamId < 0 || awayTeamId < 0;
 
   const summary: any =
-    shouldAnalyze && homeTeamId && awayTeamId
+    shouldAnalyze && usesSyntheticTeams && selectedUpcoming && league === "MLB"
+      ? await getSafeExternalMlbSummary({
+          matchup: selectedUpcoming,
+          season,
+          seasonType,
+          rangeType,
+          rangeValue,
+          includeOvertime
+        })
+      : shouldAnalyze && homeTeamId && awayTeamId
       ? await getSafeSummary({
           league,
           homeTeamId,
@@ -50,7 +61,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
         })
       : null;
   const mlbDetails =
-    league === "MLB" && shouldAnalyze && homeTeamId && awayTeamId
+    league === "MLB" && shouldAnalyze && homeTeamId && awayTeamId && !usesSyntheticTeams
       ? await getSafeMlbDetails({ homeTeamId, awayTeamId, upcomingGameId: params.upcomingGameId, season })
       : null;
 
@@ -191,6 +202,137 @@ async function getSafeMlbDetails(input: Parameters<typeof getMlbMatchupDetails>[
     }
     return null;
   }
+}
+
+async function getSafeExternalMlbSummary(input: {
+  matchup: UpcomingMatchup;
+  season: string;
+  seasonType: string;
+  rangeType: "games" | "days";
+  rangeValue: number;
+  includeOvertime: boolean;
+}) {
+  try {
+    const games = await withTimeout(
+      fetchCurrentSeasonGames({
+        league: "MLB",
+        season: input.season,
+        seasonType: input.seasonType
+      }),
+      4500
+    );
+    const awaySummary = summarizeExternalMlbTeam(games, input.matchup.awayTeam, input);
+    const homeSummary = summarizeExternalMlbTeam(games, input.matchup.homeTeam, input);
+    return {
+      dataSource: "MLB StatsAPI schedule fallback",
+      sourceStatus: "Using upcoming matchup team names",
+      homeTeamSummary: homeSummary,
+      awayTeamSummary: awaySummary,
+      comparison: {
+        averageScoredDiff: diffValues(homeSummary.averageScored, awaySummary.averageScored),
+        averageAllowedDiff: diffValues(homeSummary.averageAllowed, awaySummary.averageAllowed),
+        averageMarginDiff: diffValues(homeSummary.averageMargin, awaySummary.averageMargin)
+      },
+      gameLogs: [...homeSummary.logs, ...awaySummary.logs],
+      error: false
+    };
+  } catch (error) {
+    if (!(error instanceof Error && error.message === "Timed out")) {
+      console.error("External MLB summary unavailable", error);
+    }
+    return { error: true };
+  }
+}
+
+function summarizeExternalMlbTeam(
+  games: Awaited<ReturnType<typeof fetchCurrentSeasonGames>>,
+  team: string,
+  input: { rangeType: "games" | "days"; rangeValue: number; includeOvertime: boolean }
+) {
+  const cutoff = new Date(Date.now() - input.rangeValue * 24 * 60 * 60 * 1000);
+  const logs = games
+    .filter((game) => game.awayTeam === team || game.homeTeam === team)
+    .filter((game) => input.rangeType === "games" || new Date(game.gameDate) >= cutoff)
+    .sort((a, b) => Date.parse(b.gameDate) - Date.parse(a.gameDate))
+    .slice(0, input.rangeType === "games" ? input.rangeValue : undefined)
+    .map((game) => {
+      const isHome = game.homeTeam === team;
+      const scored = input.includeOvertime
+        ? isHome
+          ? game.homeScoreFinal
+          : game.awayScoreFinal
+        : isHome
+          ? game.homeScoreRegulation
+          : game.awayScoreRegulation;
+      const allowed = input.includeOvertime
+        ? isHome
+          ? game.awayScoreFinal
+          : game.homeScoreFinal
+        : isHome
+          ? game.awayScoreRegulation
+          : game.homeScoreRegulation;
+      return {
+        gameId: game.externalGameId,
+        date: game.gameDate,
+        team,
+        opponent: isHome ? game.awayTeam : game.homeTeam,
+        homeAway: isHome ? "HOME" : "AWAY",
+        scored: scored ?? 0,
+        allowed: allowed ?? 0,
+        margin: (scored ?? 0) - (allowed ?? 0),
+        result: (scored ?? 0) > (allowed ?? 0) ? "W" : "L",
+        wentOvertime: Boolean(game.wentOvertime),
+        missingPeriodScoring: scored === null || allowed === null,
+        source: game.dataSource
+      };
+    });
+
+  if (!logs.length) {
+    return {
+      teamId: stableSyntheticId(team),
+      team,
+      games: 0,
+      averageScored: null,
+      averageAllowed: null,
+      averageMargin: null,
+      highestScored: null,
+      lowestScored: null,
+      wins: 0,
+      losses: 0,
+      homeAverageScored: null,
+      awayAverageScored: null,
+      streak: null,
+      includeOvertime: input.includeOvertime,
+      lastUpdatedAt: null,
+      unavailableReason: "資料來源目前無法取得",
+      logs
+    };
+  }
+
+  const scored = logs.map((log) => log.scored);
+  const allowed = logs.map((log) => log.allowed);
+  const homeLogs = logs.filter((log) => log.homeAway === "HOME");
+  const awayLogs = logs.filter((log) => log.homeAway === "AWAY");
+  const wins = logs.filter((log) => log.result === "W").length;
+
+  return {
+    teamId: stableSyntheticId(team),
+    team,
+    games: logs.length,
+    averageScored: average(scored),
+    averageAllowed: average(allowed),
+    averageMargin: diffValues(average(scored), average(allowed)),
+    highestScored: Math.max(...scored),
+    lowestScored: Math.min(...scored),
+    wins,
+    losses: logs.length - wins,
+    homeAverageScored: average(homeLogs.map((log) => log.scored)),
+    awayAverageScored: average(awayLogs.map((log) => log.scored)),
+    streak: null,
+    includeOvertime: input.includeOvertime,
+    lastUpdatedAt: new Date().toISOString(),
+    logs
+  };
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
@@ -554,6 +696,16 @@ function roundOne(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function average(values: number[]) {
+  if (!values.length) return null;
+  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) / 100;
+}
+
+function diffValues(a: number | null, b: number | null) {
+  if (a === null || b === null) return null;
+  return Math.round((a - b) * 100) / 100;
 }
 
 function formatDate(value: string, lang: "zh" | "en") {
