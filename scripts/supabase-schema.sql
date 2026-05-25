@@ -180,3 +180,35 @@ ALTER TABLE "PlayerGameStat" ADD CONSTRAINT "PlayerGameStat_playerId_fkey" FOREI
 -- AddForeignKey
 ALTER TABLE "PlayerGameStat" ADD CONSTRAINT "PlayerGameStat_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "Team"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+-- International odds board tables
+CREATE TABLE IF NOT EXISTS games (
+    id SERIAL PRIMARY KEY,
+    league TEXT NOT NULL,
+    external_game_id TEXT NOT NULL,
+    commence_time TIMESTAMP(3) NOT NULL,
+    home_team TEXT NOT NULL,
+    away_team TEXT NOT NULL,
+    created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS odds_snapshots (
+    id SERIAL PRIMARY KEY,
+    game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    league TEXT NOT NULL,
+    sportsbook TEXT NOT NULL,
+    market TEXT NOT NULL,
+    side TEXT NOT NULL,
+    line DOUBLE PRECISION,
+    decimal_odds DOUBLE PRECISION NOT NULL,
+    implied_probability DOUBLE PRECISION NOT NULL,
+    snapshot_time TIMESTAMP(3) NOT NULL,
+    source TEXT NOT NULL,
+    created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS games_league_external_game_id_key ON games(league, external_game_id);
+CREATE INDEX IF NOT EXISTS games_league_commence_time_idx ON games(league, commence_time);
+CREATE INDEX IF NOT EXISTS odds_snapshots_league_market_snapshot_time_idx ON odds_snapshots(league, market, snapshot_time);
+CREATE INDEX IF NOT EXISTS odds_snapshots_game_id_snapshot_time_idx ON odds_snapshots(game_id, snapshot_time);
+

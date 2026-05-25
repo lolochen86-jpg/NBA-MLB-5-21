@@ -142,3 +142,42 @@ model SourceSync {
 
   @@unique([league, source, entity])
 }
+
+model OddsGame {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  league         String
+  externalGameId String         @map("external_game_id")
+  commenceTime   DateTime       @map("commence_time")
+  gameTime        DateTime       @map("game_time")
+  homeTeam       String         @map("home_team")
+  awayTeam       String         @map("away_team")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  snapshots      OddsSnapshot[]
+
+  @@unique([league, externalGameId])
+  @@index([league, commenceTime])
+  @@map("games")
+}
+
+model OddsSnapshot {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  gameId             String   @map("game_id") @db.Uuid
+  league             String
+  sportsbook         String
+  bookmaker          String
+  market             String
+  marketType         String   @map("market_type")
+  side               String
+  line               Float?
+  decimalOdds        Float    @map("decimal_odds")
+  impliedProbability Float    @map("implied_probability")
+  snapshotTime       DateTime @map("snapshot_time")
+  source             String
+  createdAt          DateTime @default(now()) @map("created_at")
+  game               OddsGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([league, market, snapshotTime])
+  @@index([gameId, snapshotTime])
+  @@map("odds_snapshots")
+}
