@@ -12,6 +12,13 @@ import { fetchUpcomingMatchups, type UpcomingMatchup } from "@/lib/upcoming-matc
 
 type Search = Record<string, string | string[] | undefined>;
 type TeamOption = { id: number; abbreviation: string; name: string; externalId?: string };
+type MarketOdds = {
+  internationalHomeOdds?: number;
+  internationalAwayOdds?: number;
+  taiwanHomeOdds?: number;
+  taiwanAwayOdds?: number;
+  bankroll: number;
+};
 
 export default async function MatchupPage({ searchParams }: { searchParams: Promise<Search> }) {
   const params = await searchParams;
@@ -34,6 +41,13 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
   const rangeValue = Number(params.rangeValue ?? 5);
   const includeOvertime = String(params.includeOvertime ?? "true") === "true";
   const splitHomeAway = String(params.splitHomeAway ?? "false") === "true";
+  const marketOdds = {
+    internationalHomeOdds: optionalNumber(params.internationalHomeOdds),
+    internationalAwayOdds: optionalNumber(params.internationalAwayOdds),
+    taiwanHomeOdds: optionalNumber(params.taiwanHomeOdds),
+    taiwanAwayOdds: optionalNumber(params.taiwanAwayOdds),
+    bankroll: optionalNumber(params.bankroll) ?? 3000
+  };
   const shouldAnalyze = Boolean(params.analyze === "true" || params.upcomingGameId || params.homeTeamId || params.awayTeamId);
   const usesSyntheticTeams = homeTeamId < 0 || awayTeamId < 0;
 
@@ -75,8 +89,13 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
     rangeType,
     rangeValue: String(rangeValue),
     includeOvertime: String(includeOvertime),
-    splitHomeAway: String(splitHomeAway)
+    splitHomeAway: String(splitHomeAway),
+    bankroll: String(marketOdds.bankroll)
   });
+  if (marketOdds.internationalHomeOdds) query.set("internationalHomeOdds", String(marketOdds.internationalHomeOdds));
+  if (marketOdds.internationalAwayOdds) query.set("internationalAwayOdds", String(marketOdds.internationalAwayOdds));
+  if (marketOdds.taiwanHomeOdds) query.set("taiwanHomeOdds", String(marketOdds.taiwanHomeOdds));
+  if (marketOdds.taiwanAwayOdds) query.set("taiwanAwayOdds", String(marketOdds.taiwanAwayOdds));
   if (params.upcomingGameId) query.set("upcomingGameId", String(params.upcomingGameId));
   if (shouldAnalyze) query.set("analyze", "true");
 
@@ -122,6 +141,11 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
         <Select name="rangeValue" label="5 / 10 / 15" value={String(rangeValue)} options={[["5", "5"], ["10", "10"], ["15", "15"]]} />
         <Select name="includeOvertime" label={mt.includeOt} value={String(includeOvertime)} options={[["true", mt.yes], ["false", mt.no]]} />
         <Select name="splitHomeAway" label={mt.splitHomeAway} value={String(splitHomeAway)} options={[["false", mt.noSplit], ["true", mt.split]]} />
+        <TextInput name="internationalHomeOdds" label={lang === "zh" ? "國際盤主隊賠率" : "Intl Home Odds"} value={inputValue(marketOdds.internationalHomeOdds)} />
+        <TextInput name="internationalAwayOdds" label={lang === "zh" ? "國際盤客隊賠率" : "Intl Away Odds"} value={inputValue(marketOdds.internationalAwayOdds)} />
+        <TextInput name="taiwanHomeOdds" label={lang === "zh" ? "台彩主隊賠率" : "Taiwan Home Odds"} value={inputValue(marketOdds.taiwanHomeOdds)} />
+        <TextInput name="taiwanAwayOdds" label={lang === "zh" ? "台彩客隊賠率" : "Taiwan Away Odds"} value={inputValue(marketOdds.taiwanAwayOdds)} />
+        <TextInput name="bankroll" label={lang === "zh" ? "本金" : "Bankroll"} value={String(marketOdds.bankroll)} />
         <div className="flex items-end">
           <button className="w-full rounded-md bg-blue-600 px-5 py-3 text-lg font-black text-white hover:bg-blue-700">{mt.submit}</button>
         </div>
@@ -149,7 +173,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
           </div>
 
           <SummaryTable rows={[summary.homeTeamSummary, summary.awayTeamSummary]} headers={mt.tableHeaders} yes={mt.yes} no={mt.no} lang={lang} />
-          <MonteCarloPanel summary={summary} league={league} lang={lang} />
+          <MonteCarloPanel summary={summary} league={league} lang={lang} marketOdds={marketOdds} />
           {mlbDetails ? <MlbDetailPanel details={mlbDetails} lang={lang} /> : null}
           {mlbDetails ? <MlbPredictionPanel summary={summary} details={mlbDetails} lang={lang} /> : null}
           <GameLogTable rows={summary.gameLogs} headers={mt.logHeaders} yes={mt.yes} no={mt.no} unavailable={t.unavailable} lang={lang} />
@@ -457,9 +481,10 @@ function SummaryTable({ rows, headers, yes, no, lang }: { rows: any[]; headers: 
   );
 }
 
-function MonteCarloPanel({ summary, league, lang }: { summary: any; league: string; lang: "zh" | "en" }) {
+function MonteCarloPanel({ summary, league, lang, marketOdds }: { summary: any; league: string; lang: "zh" | "en"; marketOdds: MarketOdds }) {
   const result = runMonteCarlo(summary, league);
   if (!result) return null;
+  const marketRows = buildMarketRows(result, marketOdds, lang);
   const labels =
     lang === "zh"
       ? {
@@ -470,7 +495,10 @@ function MonteCarloPanel({ summary, league, lang }: { summary: any; league: stri
           avgScore: "平均比分",
           avgMargin: "平均主隊分差",
           likelyScores: "最常見比分",
-          model: "模型參數"
+          model: "模型參數",
+          fairOdds: "模擬換算公平賠率",
+          oddsCompare: "國際盤 / 台灣運彩賠率對比",
+          noMarketOdds: "輸入國際盤或台灣運彩賠率後，這裡會直接計算 Edge、EV 與 Kelly 建議金額。"
         }
       : {
           title: "Monte Carlo 10,000 Matchup Simulations",
@@ -480,7 +508,10 @@ function MonteCarloPanel({ summary, league, lang }: { summary: any; league: stri
           avgScore: "Average Score",
           avgMargin: "Average Home Margin",
           likelyScores: "Most Common Scores",
-          model: "Model Inputs"
+          model: "Model Inputs",
+          fairOdds: "Simulation Fair Odds",
+          oddsCompare: "International / Taiwan Odds Comparison",
+          noMarketOdds: "Enter international or Taiwan odds to calculate Edge, EV, and Kelly stake."
         };
 
   return (
@@ -494,6 +525,62 @@ function MonteCarloPanel({ summary, league, lang }: { summary: any; league: stri
         <StatTile label={labels.awayWin} value={`${result.awayWinPct.toFixed(1)}%`} helper={teamName(result.awayTeam, lang)} tone="emerald" />
         <StatTile label={labels.avgScore} value={`${result.awayAvgScore.toFixed(1)} - ${result.homeAvgScore.toFixed(1)}`} helper={`${teamName(result.awayTeam, lang)} @ ${teamName(result.homeTeam, lang)}`} />
         <StatTile label={labels.avgMargin} value={signed(result.averageHomeMargin)} helper={result.averageHomeMargin >= 0 ? teamName(result.homeTeam, lang) : teamName(result.awayTeam, lang)} />
+      </div>
+      <div className="grid gap-4 border-t border-slate-100 p-4 md:grid-cols-2">
+        <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
+          <div className="text-sm font-black text-slate-700">{labels.fairOdds}</div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <OddsTile
+              team={teamName(result.homeTeam, lang)}
+              probability={result.homeWinPct / 100}
+              fairOdds={result.homeFairOdds}
+              lang={lang}
+            />
+            <OddsTile
+              team={teamName(result.awayTeam, lang)}
+              probability={result.awayWinPct / 100}
+              fairOdds={result.awayFairOdds}
+              lang={lang}
+            />
+          </div>
+        </div>
+        <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
+          <div className="text-sm font-black text-slate-700">{labels.oddsCompare}</div>
+          {marketRows.length ? (
+            <div className="mt-3 overflow-x-auto rounded-md border border-slate-100 bg-white">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="bg-skySoft text-slate-700">
+                  <tr>
+                    <th className="px-3 py-2">{lang === "zh" ? "來源" : "Source"}</th>
+                    <th className="px-3 py-2">{lang === "zh" ? "隊伍" : "Team"}</th>
+                    <th className="px-3 py-2 text-right">{lang === "zh" ? "盤口賠率" : "Book Odds"}</th>
+                    <th className="px-3 py-2 text-right">{lang === "zh" ? "模型公平賠率" : "Fair Odds"}</th>
+                    <th className="px-3 py-2 text-right">Edge</th>
+                    <th className="px-3 py-2 text-right">EV</th>
+                    <th className="px-3 py-2 text-right">Kelly</th>
+                    <th className="px-3 py-2 text-right">{lang === "zh" ? "建議金額" : "Stake"}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {marketRows.map((row) => (
+                    <tr key={`${row.source}-${row.side}`} className="border-t border-slate-100">
+                      <td className="px-3 py-2 font-bold">{row.source}</td>
+                      <td className="px-3 py-2">{teamName(row.team, lang)}</td>
+                      <td className="numeric px-3 py-2 text-right">{row.bookOdds.toFixed(2)}</td>
+                      <td className="numeric px-3 py-2 text-right">{row.fairOdds.toFixed(2)}</td>
+                      <td className={`numeric px-3 py-2 text-right font-black ${row.edge >= 0 ? "text-emerald-700" : "text-red-600"}`}>{pct(row.edge)}</td>
+                      <td className={`numeric px-3 py-2 text-right font-black ${row.ev >= 0 ? "text-emerald-700" : "text-red-600"}`}>{pct(row.ev)}</td>
+                      <td className="numeric px-3 py-2 text-right">{pct(row.kellyFraction)}</td>
+                      <td className="numeric px-3 py-2 text-right font-bold">{money(row.stake, lang)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="mt-3 rounded-md bg-white p-4 text-sm text-slate-600">{labels.noMarketOdds}</div>
+          )}
+        </div>
       </div>
       <div className="grid gap-4 border-t border-slate-100 p-4 lg:grid-cols-[1.2fr_0.8fr]">
         <div>
@@ -558,6 +645,57 @@ function StatTile({ label, value, helper, tone = "slate" }: { label: string; val
       {helper ? <div className="mt-1 text-sm font-bold text-slate-600">{helper}</div> : null}
     </div>
   );
+}
+
+function OddsTile({ team, probability, fairOdds, lang }: { team: string; probability: number; fairOdds: number; lang: "zh" | "en" }) {
+  return (
+    <div className="rounded-md bg-white p-4">
+      <div className="text-sm font-black text-ink">{team}</div>
+      <dl className="mt-3 space-y-2 text-sm text-slate-700">
+        <div className="flex justify-between gap-3">
+          <dt>{lang === "zh" ? "模擬勝率" : "Simulation Win Prob"}</dt>
+          <dd className="numeric font-bold">{pct(probability)}</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt>{lang === "zh" ? "公平賠率" : "Fair Odds"}</dt>
+          <dd className="numeric text-xl font-black text-blue-700">{fairOdds.toFixed(2)}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+function buildMarketRows(result: any, marketOdds: MarketOdds, lang: "zh" | "en") {
+  const rows = [
+    marketRow(lang === "zh" ? "國際盤" : "International", "home", result.homeTeam, result.homeWinPct / 100, result.homeFairOdds, marketOdds.internationalHomeOdds, marketOdds.bankroll),
+    marketRow(lang === "zh" ? "國際盤" : "International", "away", result.awayTeam, result.awayWinPct / 100, result.awayFairOdds, marketOdds.internationalAwayOdds, marketOdds.bankroll),
+    marketRow(lang === "zh" ? "台灣運彩" : "Taiwan Sports Lottery", "home", result.homeTeam, result.homeWinPct / 100, result.homeFairOdds, marketOdds.taiwanHomeOdds, marketOdds.bankroll),
+    marketRow(lang === "zh" ? "台灣運彩" : "Taiwan Sports Lottery", "away", result.awayTeam, result.awayWinPct / 100, result.awayFairOdds, marketOdds.taiwanAwayOdds, marketOdds.bankroll)
+  ];
+  return rows.filter(Boolean) as Array<NonNullable<ReturnType<typeof marketRow>>>;
+}
+
+function marketRow(source: string, side: "home" | "away", team: string, modelProb: number, fairOdds: number, bookOdds: number | undefined, bankroll: number) {
+  if (!bookOdds || bookOdds <= 1) return null;
+  const marketProb = 1 / bookOdds;
+  const edge = modelProb - marketProb;
+  const ev = modelProb * bookOdds - 1;
+  const b = bookOdds - 1;
+  const fullKelly = b > 0 ? (b * modelProb - (1 - modelProb)) / b : 0;
+  const kellyFraction = clamp(Math.max(0, fullKelly) * 0.25, 0, 0.08);
+  return {
+    source,
+    side,
+    team,
+    modelProb,
+    fairOdds,
+    bookOdds,
+    marketProb,
+    edge,
+    ev,
+    kellyFraction,
+    stake: bankroll * kellyFraction
+  };
 }
 
 function MlbDetailPanel({ details, lang }: { details: any; lang: "zh" | "en" }) {
@@ -785,6 +923,17 @@ function fmt(value: number | null | undefined) {
   return value === null || value === undefined ? "-" : value.toFixed(2);
 }
 
+function inputValue(value: number | undefined) {
+  return value === undefined ? "" : String(value);
+}
+
+function optionalNumber(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === undefined || raw === "") return undefined;
+  const number = Number(raw);
+  return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+
 function textOrDash(value: string | number | null | undefined) {
   return value === null || value === undefined || value === "" ? "-" : value;
 }
@@ -847,6 +996,8 @@ function runMonteCarlo(summary: any, league: string) {
     awayExpected,
     homeWinPct: (homeWins / simulations) * 100,
     awayWinPct: (awayWins / simulations) * 100,
+    homeFairOdds: fairOdds(homeWins / simulations),
+    awayFairOdds: fairOdds(awayWins / simulations),
     homeAvgScore: homeScoreTotal / simulations,
     awayAvgScore: awayScoreTotal / simulations,
     averageHomeMargin: marginTotal / simulations,
@@ -908,6 +1059,20 @@ function poisson(lambda: number, rng: () => number) {
 
 function signed(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+}
+
+function fairOdds(probability: number) {
+  return probability <= 0 ? 999 : Math.round((1 / probability) * 100) / 100;
+}
+
+function pct(value: number) {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function money(value: number, lang: "zh" | "en") {
+  return value.toLocaleString(lang === "zh" ? "zh-TW" : "en-US", {
+    maximumFractionDigits: 0
+  });
 }
 
 function numberOr(value: unknown, fallback: number) {
