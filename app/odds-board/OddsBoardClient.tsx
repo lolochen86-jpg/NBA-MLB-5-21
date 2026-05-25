@@ -43,7 +43,7 @@ type SideAverage = {
   count: number;
   averageOdds: number | null;
   averageProbability: number | null;
-  averageLine: number | null;
+  displayLine: number | null;
 };
 
 type MarketSummary = {
@@ -258,7 +258,7 @@ function MarketSummaryCard({ summary }: { summary: MarketSummary }) {
             </div>
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm font-bold text-slate-500">
               <span>機率 {side.averageProbability ? formatPercent(side.averageProbability) : "-"}</span>
-              <span>盤口 {side.averageLine === null ? "-" : formatLine(side.averageLine)}</span>
+              <span>盤口 {side.displayLine === null ? "-" : formatLine(side.displayLine)}</span>
             </div>
           </div>
         ))}
@@ -321,7 +321,7 @@ function getMarketSummaries(game: GameGroup): MarketSummary[] {
           count: sideRows.length,
           averageOdds: average(sideRows.map((row) => row.decimalOdds)),
           averageProbability: average(sideRows.map((row) => row.impliedProbability)),
-          averageLine: lineRows.length ? average(lineRows.map((row) => row.line ?? 0)) : null
+          displayLine: lineRows.length ? mostCommonLine(lineRows.map((row) => row.line ?? 0)) : null
         };
       })
     };
@@ -336,6 +336,19 @@ function getPreferredSideOrder(market: OddsBoardRow["market"], game: GameGroup) 
 function average(values: number[]) {
   if (!values.length) return null;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function mostCommonLine(values: number[]) {
+  const counts = new Map<string, { value: number; count: number }>();
+
+  for (const value of values) {
+    const rounded = Math.round(value * 100) / 100;
+    const key = rounded.toFixed(2);
+    const current = counts.get(key);
+    counts.set(key, { value: rounded, count: (current?.count ?? 0) + 1 });
+  }
+
+  return Array.from(counts.values()).sort((a, b) => b.count - a.count || Math.abs(b.value) - Math.abs(a.value))[0]?.value ?? null;
 }
 
 function formatFullDate(value: string) {
