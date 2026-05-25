@@ -246,12 +246,19 @@ async function buildNbaLogsFromLeagueGameLog(
   },
   team: { name: string; abbreviation: string }
 ) {
+  try {
+    const espnLogs = await buildNbaLogsFromEspnSchedule(input, team);
+    if (espnLogs.length) return espnLogs;
+  } catch (error) {
+    console.warn("ESPN NBA schedule fallback unavailable, using NBA leaguegamelog", error);
+  }
+
   let rows: NbaLogRow[];
   try {
     rows = await fetchNbaLeagueGameLog(input.season, input.seasonType);
   } catch (error) {
-    console.warn("NBA leaguegamelog unavailable, using ESPN fallback", error);
-    return buildNbaLogsFromEspnSchedule(input, team);
+    console.warn("NBA leaguegamelog unavailable", error);
+    throw error;
   }
   const grouped = groupNbaRows(rows);
   const cutoff = new Date(Date.now() - input.rangeValue * 24 * 60 * 60 * 1000);
