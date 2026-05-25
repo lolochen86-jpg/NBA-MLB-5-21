@@ -289,7 +289,7 @@ async function fetchNbaLeagueGameLog(season: string, seasonType: string): Promis
   url.searchParams.set("SeasonType", seasonType);
   url.searchParams.set("Sorter", "DATE");
 
-  const response = await fetchWithTimeout(url.toString(), { headers: NBA_HEADERS, next: { revalidate: 60 * 30 } }, 4000);
+  const response = await fetchWithTimeout(url.toString(), { headers: NBA_HEADERS, next: { revalidate: 60 * 30 } }, 9000);
   if (!response.ok) throw new Error(`NBA.com Stats API unavailable: ${response.status}`);
 
   const payload = await response.json();
