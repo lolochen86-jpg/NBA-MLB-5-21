@@ -311,7 +311,7 @@ async function buildNbaLogsFromEspnSchedule(
   const wantedSeasonType = input.seasonType === "Playoffs" ? "postseason" : "regular";
 
   return ((payload.events ?? []) as any[])
-    .filter((event) => String(event.seasonType?.name ?? "").toLowerCase() === wantedSeasonType)
+    .filter((event) => String(event.seasonType?.name ?? "").toLowerCase().includes(wantedSeasonType))
     .filter((event) => event.competitions?.[0]?.status?.type?.completed)
     .filter((event) => input.rangeType === "games" || new Date(event.date) >= cutoff)
     .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
