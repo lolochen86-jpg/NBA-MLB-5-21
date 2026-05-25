@@ -246,7 +246,13 @@ async function buildNbaLogsFromLeagueGameLog(
   },
   team: { name: string; abbreviation: string }
 ) {
-  const rows = await fetchNbaLeagueGameLog(input.season, input.seasonType);
+  let rows: NbaLogRow[];
+  try {
+    rows = await fetchNbaLeagueGameLog(input.season, input.seasonType);
+  } catch (error) {
+    console.warn("NBA leaguegamelog unavailable, using ESPN fallback", error);
+    return buildNbaLogsFromEspnSchedule(input, team);
+  }
   const grouped = groupNbaRows(rows);
   const cutoff = new Date(Date.now() - input.rangeValue * 24 * 60 * 60 * 1000);
 
@@ -273,6 +279,58 @@ async function buildNbaLogsFromLeagueGameLog(
         wentOvertime: false,
         missingPeriodScoring: !input.includeOvertime,
         source: "NBA.com Stats API leaguegamelog"
+      } satisfies GameLog;
+    });
+}
+
+async function buildNbaLogsFromEspnSchedule(
+  input: {
+    season: string;
+    seasonType: string;
+    rangeType: "games" | "days";
+    rangeValue: number;
+    includeOvertime: boolean;
+  },
+  team: { name: string; abbreviation: string }
+) {
+  const url = new URL(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${team.abbreviation.toLowerCase()}/schedule`);
+  url.searchParams.set("season", String(nbaEspnSeasonYear(input.season)));
+
+  const response = await fetchWithTimeout(url.toString(), { next: { revalidate: 60 * 30 } }, 5000);
+  if (!response.ok) throw new Error(`ESPN NBA schedule unavailable: ${response.status}`);
+
+  const payload = await response.json();
+  const cutoff = new Date(Date.now() - input.rangeValue * 24 * 60 * 60 * 1000);
+  const wantedSeasonType = input.seasonType === "Playoffs" ? "postseason" : "regular";
+
+  return ((payload.events ?? []) as any[])
+    .filter((event) => String(event.seasonType?.name ?? "").toLowerCase() === wantedSeasonType)
+    .filter((event) => event.competitions?.[0]?.status?.type?.completed)
+    .filter((event) => input.rangeType === "games" || new Date(event.date) >= cutoff)
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
+    .slice(0, input.rangeType === "games" ? input.rangeValue : undefined)
+    .map((event) => {
+      const competition = event.competitions?.[0];
+      const competitors = competition?.competitors ?? [];
+      const own = competitors.find((competitor: any) => String(competitor.team?.abbreviation ?? "").toUpperCase() === team.abbreviation);
+      const opponent = competitors.find((competitor: any) => competitor !== own);
+      const scored = numberOrNull(own?.score?.value ?? own?.score);
+      const allowed = numberOrNull(opponent?.score?.value ?? opponent?.score);
+      const isHome = own?.homeAway === "home";
+
+      return {
+        gameId: event.id,
+        date: event.date,
+        team: own?.team?.displayName ?? team.name,
+        opponent: opponent?.team?.displayName ?? event.shortName ?? "",
+        homeAway: isHome ? "HOME" : "AWAY",
+        scored: scored ?? 0,
+        allowed: allowed ?? 0,
+        margin: (scored ?? 0) - (allowed ?? 0),
+        result: (scored ?? 0) > (allowed ?? 0) ? "W" : "L",
+        wentOvertime: false,
+        missingPeriodScoring: !input.includeOvertime,
+        source: "ESPN NBA team schedule fallback"
       } satisfies GameLog;
     });
 }
@@ -463,4 +521,10 @@ function buildStreak(logs: GameLog[]) {
     count += 1;
   }
   return `${first}${count}`;
+}
+
+function nbaEspnSeasonYear(season: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(season);
+  if (!match) return new Date().getUTCFullYear();
+  return Number(`${match[1].slice(0, 2)}${match[2]}`);
 }
