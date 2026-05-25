@@ -149,6 +149,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
           </div>
 
           <SummaryTable rows={[summary.homeTeamSummary, summary.awayTeamSummary]} headers={mt.tableHeaders} yes={mt.yes} no={mt.no} lang={lang} />
+          <MonteCarloPanel summary={summary} league={league} lang={lang} />
           {mlbDetails ? <MlbDetailPanel details={mlbDetails} lang={lang} /> : null}
           {mlbDetails ? <MlbPredictionPanel summary={summary} details={mlbDetails} lang={lang} /> : null}
           <GameLogTable rows={summary.gameLogs} headers={mt.logHeaders} yes={mt.yes} no={mt.no} unavailable={t.unavailable} lang={lang} />
@@ -456,6 +457,109 @@ function SummaryTable({ rows, headers, yes, no, lang }: { rows: any[]; headers: 
   );
 }
 
+function MonteCarloPanel({ summary, league, lang }: { summary: any; league: string; lang: "zh" | "en" }) {
+  const result = runMonteCarlo(summary, league);
+  if (!result) return null;
+  const labels =
+    lang === "zh"
+      ? {
+          title: "Monte Carlo 10,000 次對戰模擬",
+          subtitle: "根據兩隊近期平均得分、失分與主客場資料估算。結果僅供數據分析，不代表保證賽果。",
+          homeWin: "主隊勝率",
+          awayWin: "客隊勝率",
+          avgScore: "平均比分",
+          avgMargin: "平均主隊分差",
+          likelyScores: "最常見比分",
+          model: "模型參數"
+        }
+      : {
+          title: "Monte Carlo 10,000 Matchup Simulations",
+          subtitle: "Estimated from recent scoring, allowed points/runs, and venue splits. For analysis only.",
+          homeWin: "Home Win",
+          awayWin: "Away Win",
+          avgScore: "Average Score",
+          avgMargin: "Average Home Margin",
+          likelyScores: "Most Common Scores",
+          model: "Model Inputs"
+        };
+
+  return (
+    <section className="rounded-lg border border-sky-100 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-4 py-4">
+        <div className="text-xl font-black text-ink">{labels.title}</div>
+        <p className="mt-1 text-sm text-slate-600">{labels.subtitle}</p>
+      </div>
+      <div className="grid gap-4 p-4 md:grid-cols-4">
+        <StatTile label={labels.homeWin} value={`${result.homeWinPct.toFixed(1)}%`} helper={teamName(result.homeTeam, lang)} tone="blue" />
+        <StatTile label={labels.awayWin} value={`${result.awayWinPct.toFixed(1)}%`} helper={teamName(result.awayTeam, lang)} tone="emerald" />
+        <StatTile label={labels.avgScore} value={`${result.awayAvgScore.toFixed(1)} - ${result.homeAvgScore.toFixed(1)}`} helper={`${teamName(result.awayTeam, lang)} @ ${teamName(result.homeTeam, lang)}`} />
+        <StatTile label={labels.avgMargin} value={signed(result.averageHomeMargin)} helper={result.averageHomeMargin >= 0 ? teamName(result.homeTeam, lang) : teamName(result.awayTeam, lang)} />
+      </div>
+      <div className="grid gap-4 border-t border-slate-100 p-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <div>
+          <div className="mb-2 text-sm font-black text-slate-700">{labels.likelyScores}</div>
+          <div className="overflow-x-auto rounded-md border border-slate-100">
+            <table className="w-full min-w-[520px] text-left text-sm">
+              <thead className="bg-skySoft text-slate-700">
+                <tr>
+                  <th className="px-3 py-2">{lang === "zh" ? "比分" : "Score"}</th>
+                  <th className="px-3 py-2">{lang === "zh" ? "勝隊" : "Winner"}</th>
+                  <th className="px-3 py-2 text-right">{lang === "zh" ? "次數" : "Count"}</th>
+                  <th className="px-3 py-2 text-right">{lang === "zh" ? "機率" : "Probability"}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.commonScores.map((row) => (
+                  <tr key={`${row.awayScore}-${row.homeScore}`} className="border-t border-slate-100">
+                    <td className="numeric px-3 py-2 font-bold">
+                      {row.awayScore} - {row.homeScore}
+                    </td>
+                    <td className="px-3 py-2">{teamName(row.winner, lang)}</td>
+                    <td className="numeric px-3 py-2 text-right">{row.count.toLocaleString(lang === "zh" ? "zh-TW" : "en-US")}</td>
+                    <td className="numeric px-3 py-2 text-right">{((row.count / result.simulations) * 100).toFixed(2)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="rounded-md bg-skySoft p-4 text-sm text-slate-700">
+          <div className="font-black text-ink">{labels.model}</div>
+          <dl className="mt-3 space-y-2">
+            <div className="flex justify-between gap-3">
+              <dt>{lang === "zh" ? "模擬次數" : "Simulations"}</dt>
+              <dd className="numeric font-bold">{result.simulations.toLocaleString(lang === "zh" ? "zh-TW" : "en-US")}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt>{teamName(result.homeTeam, lang)} xScore</dt>
+              <dd className="numeric font-bold">{result.homeExpected.toFixed(2)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt>{teamName(result.awayTeam, lang)} xScore</dt>
+              <dd className="numeric font-bold">{result.awayExpected.toFixed(2)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt>{lang === "zh" ? "分布" : "Distribution"}</dt>
+              <dd className="font-bold">{league === "MLB" ? "Poisson" : "Normal"}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function StatTile({ label, value, helper, tone = "slate" }: { label: string; value: string; helper?: string; tone?: "blue" | "emerald" | "slate" }) {
+  const toneClass = tone === "blue" ? "text-blue-700" : tone === "emerald" ? "text-emerald-700" : "text-ink";
+  return (
+    <div className="rounded-md border border-slate-100 bg-slate-50 p-4">
+      <div className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`numeric mt-2 text-3xl font-black ${toneClass}`}>{value}</div>
+      {helper ? <div className="mt-1 text-sm font-bold text-slate-600">{helper}</div> : null}
+    </div>
+  );
+}
+
 function MlbDetailPanel({ details, lang }: { details: any; lang: "zh" | "en" }) {
   const labels =
     lang === "zh"
@@ -683,6 +787,127 @@ function fmt(value: number | null | undefined) {
 
 function textOrDash(value: string | number | null | undefined) {
   return value === null || value === undefined || value === "" ? "-" : value;
+}
+
+function runMonteCarlo(summary: any, league: string) {
+  const home = summary.homeTeamSummary;
+  const away = summary.awayTeamSummary;
+  if (!home || !away || home.unavailableReason || away.unavailableReason) return null;
+
+  const homeExpected = expectedScore(home, away, "HOME", league);
+  const awayExpected = expectedScore(away, home, "AWAY", league);
+  if (!Number.isFinite(homeExpected) || !Number.isFinite(awayExpected)) return null;
+
+  const simulations = 10000;
+  const rng = seededRandom(`${league}:${home.team}:${away.team}:${homeExpected}:${awayExpected}:${home.games}:${away.games}`);
+  const scoreCounts = new Map<string, { awayScore: number; homeScore: number; winner: string; count: number }>();
+  let homeWins = 0;
+  let awayWins = 0;
+  let homeScoreTotal = 0;
+  let awayScoreTotal = 0;
+  let marginTotal = 0;
+
+  for (let index = 0; index < simulations; index += 1) {
+    let homeScore = league === "MLB" ? poisson(homeExpected, rng) : Math.round(normal(homeExpected, scoreDeviation(home, away, league), rng));
+    let awayScore = league === "MLB" ? poisson(awayExpected, rng) : Math.round(normal(awayExpected, scoreDeviation(away, home, league), rng));
+    homeScore = Math.max(0, homeScore);
+    awayScore = Math.max(0, awayScore);
+
+    while (homeScore === awayScore) {
+      if (league === "MLB") {
+        homeScore += poisson(0.49, rng);
+        awayScore += poisson(0.46, rng);
+      } else {
+        homeScore += Math.round(Math.max(0, normal(2.1, 1.2, rng)));
+        awayScore += Math.round(Math.max(0, normal(1.8, 1.2, rng)));
+      }
+      if (homeScore !== awayScore) break;
+      homeScore += rng() >= 0.5 ? 1 : 0;
+      awayScore += homeScore === awayScore ? 1 : 0;
+    }
+
+    const winner = homeScore > awayScore ? home.team : away.team;
+    if (winner === home.team) homeWins += 1;
+    else awayWins += 1;
+    homeScoreTotal += homeScore;
+    awayScoreTotal += awayScore;
+    marginTotal += homeScore - awayScore;
+
+    const key = `${awayScore}-${homeScore}`;
+    const current = scoreCounts.get(key);
+    if (current) current.count += 1;
+    else scoreCounts.set(key, { awayScore, homeScore, winner, count: 1 });
+  }
+
+  return {
+    simulations,
+    homeTeam: home.team,
+    awayTeam: away.team,
+    homeExpected,
+    awayExpected,
+    homeWinPct: (homeWins / simulations) * 100,
+    awayWinPct: (awayWins / simulations) * 100,
+    homeAvgScore: homeScoreTotal / simulations,
+    awayAvgScore: awayScoreTotal / simulations,
+    averageHomeMargin: marginTotal / simulations,
+    commonScores: Array.from(scoreCounts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8)
+  };
+}
+
+function expectedScore(team: any, opponent: any, side: "HOME" | "AWAY", league: string) {
+  const leagueFallback = league === "MLB" ? 4.4 : 112;
+  const recentScored = numberOr(team.averageScored, leagueFallback);
+  const opponentAllowed = numberOr(opponent.averageAllowed, leagueFallback);
+  const venue = side === "HOME" ? numberOr(team.homeAverageScored, recentScored) : numberOr(team.awayAverageScored, recentScored);
+  const formMargin = numberOr(team.averageMargin, 0) - numberOr(opponent.averageMargin, 0);
+  const homeEdge = side === "HOME" ? (league === "MLB" ? 0.12 : 1.8) : 0;
+  const raw = recentScored * 0.45 + opponentAllowed * 0.35 + venue * 0.2 + formMargin * 0.08 + homeEdge;
+  return clamp(raw, league === "MLB" ? 1.2 : 75, league === "MLB" ? 9.5 : 155);
+}
+
+function scoreDeviation(team: any, opponent: any, league: string) {
+  if (league === "MLB") return 0;
+  const teamRange = numberOr(team.highestScored, 130) - numberOr(team.lowestScored, 95);
+  const opponentRange = numberOr(opponent.highestScored, 130) - numberOr(opponent.lowestScored, 95);
+  return clamp((teamRange + opponentRange) / 6, 8.5, 17);
+}
+
+function seededRandom(seedInput: string) {
+  let seed = 2166136261;
+  for (let index = 0; index < seedInput.length; index += 1) {
+    seed ^= seedInput.charCodeAt(index);
+    seed = Math.imul(seed, 16777619);
+  }
+  return () => {
+    seed += 0x6d2b79f5;
+    let value = seed;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function normal(mean: number, sd: number, rng: () => number) {
+  const u1 = Math.max(Number.EPSILON, rng());
+  const u2 = rng();
+  return mean + Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2) * sd;
+}
+
+function poisson(lambda: number, rng: () => number) {
+  const limit = Math.exp(-lambda);
+  let product = 1;
+  let k = 0;
+  do {
+    k += 1;
+    product *= rng();
+  } while (product > limit);
+  return k - 1;
+}
+
+function signed(value: number) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 }
 
 function numberOr(value: unknown, fallback: number) {
