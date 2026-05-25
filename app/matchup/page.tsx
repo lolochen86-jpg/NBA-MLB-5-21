@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { teamLabel, teamName } from "@/lib/team-names";
 import { fetchCurrentSeasonGames } from "@/lib/current-season";
 import { fetchUpcomingMatchups, type UpcomingMatchup } from "@/lib/upcoming-matchups";
+import { fetchInternationalMoneylineOdds } from "@/lib/international-odds";
 
 type Search = Record<string, string | string[] | undefined>;
 type TeamOption = { id: number; abbreviation: string; name: string; externalId?: string };
@@ -17,6 +18,9 @@ type MarketOdds = {
   internationalAwayOdds?: number;
   taiwanHomeOdds?: number;
   taiwanAwayOdds?: number;
+  internationalHomeBookmaker?: string;
+  internationalAwayBookmaker?: string;
+  internationalMatchedEvent?: string;
 };
 
 export default async function MatchupPage({ searchParams }: { searchParams: Promise<Search> }) {
@@ -40,11 +44,24 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
   const rangeValue = Number(params.rangeValue ?? 5);
   const includeOvertime = String(params.includeOvertime ?? "true") === "true";
   const splitHomeAway = String(params.splitHomeAway ?? "false") === "true";
-  const marketOdds = {
-    internationalHomeOdds: optionalNumber(params.internationalHomeOdds),
-    internationalAwayOdds: optionalNumber(params.internationalAwayOdds),
+  const homeTeam = teams.find((team) => team.id === homeTeamId);
+  const awayTeam = teams.find((team) => team.id === awayTeamId);
+  const autoInternationalOdds =
+    shouldFetchInternationalOdds(params) && homeTeam && awayTeam
+      ? await getSafeInternationalOdds({
+          league,
+          homeTeam: homeTeam.name,
+          awayTeam: awayTeam.name
+        })
+      : null;
+  const marketOdds: MarketOdds = {
+    internationalHomeOdds: optionalNumber(params.internationalHomeOdds) ?? autoInternationalOdds?.homeOdds,
+    internationalAwayOdds: optionalNumber(params.internationalAwayOdds) ?? autoInternationalOdds?.awayOdds,
     taiwanHomeOdds: optionalNumber(params.taiwanHomeOdds),
-    taiwanAwayOdds: optionalNumber(params.taiwanAwayOdds)
+    taiwanAwayOdds: optionalNumber(params.taiwanAwayOdds),
+    internationalHomeBookmaker: autoInternationalOdds?.homeBookmaker,
+    internationalAwayBookmaker: autoInternationalOdds?.awayBookmaker,
+    internationalMatchedEvent: autoInternationalOdds?.matchedEvent
   };
   const shouldAnalyze = Boolean(params.analyze === "true" || params.upcomingGameId || params.homeTeamId || params.awayTeamId);
   const usesSyntheticTeams = homeTeamId < 0 || awayTeamId < 0;
@@ -223,6 +240,24 @@ async function getSafeMlbDetails(input: Parameters<typeof getMlbMatchupDetails>[
     }
     return null;
   }
+}
+
+async function getSafeInternationalOdds(input: Parameters<typeof fetchInternationalMoneylineOdds>[0]) {
+  try {
+    return await withTimeout(fetchInternationalMoneylineOdds(input), 4500);
+  } catch (error) {
+    if (!(error instanceof Error && error.message === "Timed out")) {
+      console.error("International odds unavailable", error);
+    }
+    return null;
+  }
+}
+
+function shouldFetchInternationalOdds(params: Search) {
+  const hasKey = Boolean(process.env.THE_ODDS_API_KEY ?? process.env.ODDS_API_KEY);
+  const hasManualInternationalOdds = Boolean(params.internationalHomeOdds && params.internationalAwayOdds);
+  const shouldAnalyze = Boolean(params.analyze === "true" || params.upcomingGameId || params.homeTeamId || params.awayTeamId);
+  return hasKey && shouldAnalyze && !hasManualInternationalOdds;
 }
 
 async function getSafeExternalMlbSummary(input: {
@@ -660,13 +695,20 @@ function OddsTile({ team, probability, fairOdds, lang }: { team: string; probabi
 }
 
 function buildMarketRows(result: any, marketOdds: MarketOdds, lang: "zh" | "en") {
+  const internationalHomeSource = formatInternationalSource(lang, marketOdds.internationalHomeBookmaker);
+  const internationalAwaySource = formatInternationalSource(lang, marketOdds.internationalAwayBookmaker);
   const rows = [
-    marketRow(lang === "zh" ? "國際盤" : "International", "home", result.homeTeam, result.homeWinPct / 100, result.homeFairOdds, marketOdds.internationalHomeOdds),
-    marketRow(lang === "zh" ? "國際盤" : "International", "away", result.awayTeam, result.awayWinPct / 100, result.awayFairOdds, marketOdds.internationalAwayOdds),
+    marketRow(internationalHomeSource, "home", result.homeTeam, result.homeWinPct / 100, result.homeFairOdds, marketOdds.internationalHomeOdds),
+    marketRow(internationalAwaySource, "away", result.awayTeam, result.awayWinPct / 100, result.awayFairOdds, marketOdds.internationalAwayOdds),
     marketRow(lang === "zh" ? "台灣運彩" : "Taiwan Sports Lottery", "home", result.homeTeam, result.homeWinPct / 100, result.homeFairOdds, marketOdds.taiwanHomeOdds),
     marketRow(lang === "zh" ? "台灣運彩" : "Taiwan Sports Lottery", "away", result.awayTeam, result.awayWinPct / 100, result.awayFairOdds, marketOdds.taiwanAwayOdds)
   ];
   return rows.filter(Boolean) as Array<NonNullable<ReturnType<typeof marketRow>>>;
+}
+
+function formatInternationalSource(lang: "zh" | "en", bookmaker?: string) {
+  const label = lang === "zh" ? "國際盤" : "International";
+  return bookmaker ? `${label} (${bookmaker})` : label;
 }
 
 function marketRow(source: string, side: "home" | "away", team: string, modelProb: number, fairOdds: number, bookOdds: number | undefined) {
