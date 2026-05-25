@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DownloadButtons } from "@/components/DownloadButtons";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { StatCard } from "@/components/StatCard";
+import { TaiwanOddsOcr } from "@/components/TaiwanOddsOcr";
 import { dict, getLang, withLang } from "@/lib/i18n";
 import { getMatchupSummary } from "@/lib/matchup";
 import { getMlbMatchupDetails } from "@/lib/mlb-matchup-details";
@@ -163,6 +164,8 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
           <button className="w-full rounded-md bg-blue-600 px-5 py-3 text-lg font-black text-white hover:bg-blue-700">{mt.submit}</button>
         </div>
       </form>
+
+      <TaiwanOddsOcr lang={lang} />
 
       {selectedUpcoming ? <UpcomingCard matchup={selectedUpcoming} label={mt.selected} lang={lang} /> : null}
 
