@@ -302,6 +302,7 @@ async function buildNbaLogsFromEspnSchedule(
 ) {
   const url = new URL(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/${team.abbreviation.toLowerCase()}/schedule`);
   url.searchParams.set("season", String(nbaEspnSeasonYear(input.season)));
+  url.searchParams.set("seasontype", input.seasonType === "Playoffs" ? "3" : "2");
 
   const response = await fetchWithTimeout(url.toString(), { next: { revalidate: 60 * 30 } }, 5000);
   if (!response.ok) throw new Error(`ESPN NBA schedule unavailable: ${response.status}`);
