@@ -17,7 +17,6 @@ type MarketOdds = {
   internationalAwayOdds?: number;
   taiwanHomeOdds?: number;
   taiwanAwayOdds?: number;
-  bankroll: number;
 };
 
 export default async function MatchupPage({ searchParams }: { searchParams: Promise<Search> }) {
@@ -45,8 +44,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
     internationalHomeOdds: optionalNumber(params.internationalHomeOdds),
     internationalAwayOdds: optionalNumber(params.internationalAwayOdds),
     taiwanHomeOdds: optionalNumber(params.taiwanHomeOdds),
-    taiwanAwayOdds: optionalNumber(params.taiwanAwayOdds),
-    bankroll: optionalNumber(params.bankroll) ?? 3000
+    taiwanAwayOdds: optionalNumber(params.taiwanAwayOdds)
   };
   const shouldAnalyze = Boolean(params.analyze === "true" || params.upcomingGameId || params.homeTeamId || params.awayTeamId);
   const usesSyntheticTeams = homeTeamId < 0 || awayTeamId < 0;
@@ -89,8 +87,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
     rangeType,
     rangeValue: String(rangeValue),
     includeOvertime: String(includeOvertime),
-    splitHomeAway: String(splitHomeAway),
-    bankroll: String(marketOdds.bankroll)
+    splitHomeAway: String(splitHomeAway)
   });
   if (marketOdds.internationalHomeOdds) query.set("internationalHomeOdds", String(marketOdds.internationalHomeOdds));
   if (marketOdds.internationalAwayOdds) query.set("internationalAwayOdds", String(marketOdds.internationalAwayOdds));
@@ -120,7 +117,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
       <form className="grid gap-4 rounded-lg border border-sky-100 bg-white p-5 shadow-sm lg:grid-cols-4" action="/matchup">
         <input type="hidden" name="lang" value={lang} />
         <input type="hidden" name="analyze" value="true" />
-        <Select name="league" label="League" value={league} options={[["NBA", "NBA"], ["MLB", "MLB"]]} />
+        <input type="hidden" name="league" value={league} />
         <Select
           name="upcomingGameId"
           label={mt.upcoming}
@@ -145,7 +142,6 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
         <TextInput name="internationalAwayOdds" label={lang === "zh" ? "國際盤客隊賠率" : "Intl Away Odds"} value={inputValue(marketOdds.internationalAwayOdds)} />
         <TextInput name="taiwanHomeOdds" label={lang === "zh" ? "台彩主隊賠率" : "Taiwan Home Odds"} value={inputValue(marketOdds.taiwanHomeOdds)} />
         <TextInput name="taiwanAwayOdds" label={lang === "zh" ? "台彩客隊賠率" : "Taiwan Away Odds"} value={inputValue(marketOdds.taiwanAwayOdds)} />
-        <TextInput name="bankroll" label={lang === "zh" ? "本金" : "Bankroll"} value={String(marketOdds.bankroll)} />
         <div className="flex items-end">
           <button className="w-full rounded-md bg-blue-600 px-5 py-3 text-lg font-black text-white hover:bg-blue-700">{mt.submit}</button>
         </div>
@@ -558,7 +554,6 @@ function MonteCarloPanel({ summary, league, lang, marketOdds }: { summary: any; 
                     <th className="px-3 py-2 text-right">Edge</th>
                     <th className="px-3 py-2 text-right">EV</th>
                     <th className="px-3 py-2 text-right">Kelly</th>
-                    <th className="px-3 py-2 text-right">{lang === "zh" ? "建議金額" : "Stake"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -571,7 +566,6 @@ function MonteCarloPanel({ summary, league, lang, marketOdds }: { summary: any; 
                       <td className={`numeric px-3 py-2 text-right font-black ${row.edge >= 0 ? "text-emerald-700" : "text-red-600"}`}>{pct(row.edge)}</td>
                       <td className={`numeric px-3 py-2 text-right font-black ${row.ev >= 0 ? "text-emerald-700" : "text-red-600"}`}>{pct(row.ev)}</td>
                       <td className="numeric px-3 py-2 text-right">{pct(row.kellyFraction)}</td>
-                      <td className="numeric px-3 py-2 text-right font-bold">{money(row.stake, lang)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -667,15 +661,15 @@ function OddsTile({ team, probability, fairOdds, lang }: { team: string; probabi
 
 function buildMarketRows(result: any, marketOdds: MarketOdds, lang: "zh" | "en") {
   const rows = [
-    marketRow(lang === "zh" ? "國際盤" : "International", "home", result.homeTeam, result.homeWinPct / 100, result.homeFairOdds, marketOdds.internationalHomeOdds, marketOdds.bankroll),
-    marketRow(lang === "zh" ? "國際盤" : "International", "away", result.awayTeam, result.awayWinPct / 100, result.awayFairOdds, marketOdds.internationalAwayOdds, marketOdds.bankroll),
-    marketRow(lang === "zh" ? "台灣運彩" : "Taiwan Sports Lottery", "home", result.homeTeam, result.homeWinPct / 100, result.homeFairOdds, marketOdds.taiwanHomeOdds, marketOdds.bankroll),
-    marketRow(lang === "zh" ? "台灣運彩" : "Taiwan Sports Lottery", "away", result.awayTeam, result.awayWinPct / 100, result.awayFairOdds, marketOdds.taiwanAwayOdds, marketOdds.bankroll)
+    marketRow(lang === "zh" ? "國際盤" : "International", "home", result.homeTeam, result.homeWinPct / 100, result.homeFairOdds, marketOdds.internationalHomeOdds),
+    marketRow(lang === "zh" ? "國際盤" : "International", "away", result.awayTeam, result.awayWinPct / 100, result.awayFairOdds, marketOdds.internationalAwayOdds),
+    marketRow(lang === "zh" ? "台灣運彩" : "Taiwan Sports Lottery", "home", result.homeTeam, result.homeWinPct / 100, result.homeFairOdds, marketOdds.taiwanHomeOdds),
+    marketRow(lang === "zh" ? "台灣運彩" : "Taiwan Sports Lottery", "away", result.awayTeam, result.awayWinPct / 100, result.awayFairOdds, marketOdds.taiwanAwayOdds)
   ];
   return rows.filter(Boolean) as Array<NonNullable<ReturnType<typeof marketRow>>>;
 }
 
-function marketRow(source: string, side: "home" | "away", team: string, modelProb: number, fairOdds: number, bookOdds: number | undefined, bankroll: number) {
+function marketRow(source: string, side: "home" | "away", team: string, modelProb: number, fairOdds: number, bookOdds: number | undefined) {
   if (!bookOdds || bookOdds <= 1) return null;
   const marketProb = 1 / bookOdds;
   const edge = modelProb - marketProb;
@@ -693,8 +687,7 @@ function marketRow(source: string, side: "home" | "away", team: string, modelPro
     marketProb,
     edge,
     ev,
-    kellyFraction,
-    stake: bankroll * kellyFraction
+    kellyFraction
   };
 }
 
@@ -1067,12 +1060,6 @@ function fairOdds(probability: number) {
 
 function pct(value: number) {
   return `${(value * 100).toFixed(1)}%`;
-}
-
-function money(value: number, lang: "zh" | "en") {
-  return value.toLocaleString(lang === "zh" ? "zh-TW" : "en-US", {
-    maximumFractionDigits: 0
-  });
 }
 
 function numberOr(value: unknown, fallback: number) {
