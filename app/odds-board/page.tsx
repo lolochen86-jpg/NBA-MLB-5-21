@@ -38,11 +38,27 @@ export default async function OddsBoardPage() {
 
 async function loadOddsRows(): Promise<{ rows: OddsBoardRow[]; error?: string }> {
   try {
-    const snapshots = await prisma.oddsSnapshot.findMany({
-      include: { game: true },
-      orderBy: [{ snapshotTime: "desc" }, { id: "desc" }],
-      take: 1000
+    const now = new Date();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 2);
+
+    const games = await prisma.oddsGame.findMany({
+      where: { commenceTime: { gte: start, lte: end } },
+      orderBy: [{ commenceTime: "asc" }, { id: "asc" }],
+      select: { id: true }
     });
+
+    const gameIds = games.map((game) => game.id);
+
+    const snapshots = gameIds.length
+      ? await prisma.oddsSnapshot.findMany({
+          where: { gameId: { in: gameIds } },
+          include: { game: true },
+          orderBy: [{ snapshotTime: "desc" }, { id: "desc" }]
+        })
+      : [];
+
     const scores = await loadFinalScores();
 
     return {

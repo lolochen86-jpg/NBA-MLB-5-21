@@ -52,7 +52,7 @@ async function refreshLeague(league: OddsLeague, apiKey: string) {
   let snapshotCount = 0;
 
   for (const event of events) {
-    const snapshots = normalizeOddsSnapshot(event, league, fetchedAt);
+    const snapshots = filterOutlierSnapshots(normalizeOddsSnapshot(event, league, fetchedAt));
     if (!snapshots.length) continue;
 
     const game = await prisma.oddsGame.upsert({
@@ -100,7 +100,7 @@ async function fetchOddsApiEvents(league: OddsLeague, apiKey: string) {
   const url = new URL(`https://api.the-odds-api.com/v4/sports/${SPORT_KEYS[league]}/odds`);
   url.searchParams.set("apiKey", apiKey);
   url.searchParams.set("markets", "h2h,spreads,totals");
-  url.searchParams.set("regions", "us");
+  url.searchParams.set("regions", "us,eu,uk,au");
   url.searchParams.set("oddsFormat", "decimal");
   url.searchParams.set("dateFormat", "iso");
 
@@ -130,6 +130,47 @@ class OddsApiError extends Error {
   constructor(message: string, public status: number) {
     super(message);
   }
+}
+
+
+
+function filterOutlierSnapshots(rows: ReturnType<typeof normalizeOddsSnapshot>) {
+  if (rows.length < 3) return rows;
+
+  const grouped = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const key = `${row.market}|${row.side}|${row.line ?? "null"}`;
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(row);
+    grouped.set(key, bucket);
+  }
+
+  const kept: typeof rows = [];
+  for (const bucket of grouped.values()) {
+    if (bucket.length < 3) {
+      kept.push(...bucket);
+      continue;
+    }
+
+    const baseline = median(bucket.map((item) => item.decimalOdds));
+    for (const item of bucket) {
+      const ratio = item.decimalOdds / baseline;
+      if (ratio >= 0.7 && ratio <= 1.3) {
+        kept.push(item);
+      }
+    }
+  }
+
+  return kept;
+}
+
+function median(values: number[]) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return sorted[mid];
 }
 
 function toLegacyMarketType(market: string) {

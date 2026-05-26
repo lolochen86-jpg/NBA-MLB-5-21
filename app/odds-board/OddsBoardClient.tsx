@@ -60,6 +60,7 @@ const MARKET_LABELS: Record<OddsBoardRow["market"], string> = {
 const ERROR_MESSAGES = new Set(["API key missing", "API limit exceeded", "network error", "invalid league"]);
 
 export function OddsBoardClient({ rows, initialMessage }: { rows: OddsBoardRow[]; initialMessage?: string }) {
+  const [dateFilter, setDateFilter] = useState<"today" | "tomorrow">("today");
   const [league, setLeague] = useState<"ALL" | "NBA" | "MLB">("ALL");
   const [market, setMarket] = useState<"ALL" | OddsBoardRow["market"]>("ALL");
   const [message, setMessage] = useState<string | null>(initialMessage ?? null);
@@ -70,9 +71,10 @@ export function OddsBoardClient({ rows, initialMessage }: { rows: OddsBoardRow[]
       rows.filter((row) => {
         const leagueMatches = league === "ALL" || row.league === league;
         const marketMatches = market === "ALL" || row.market === market;
-        return leagueMatches && marketMatches;
+        const dateMatches = getDateBucket(row.gameTime) === dateFilter;
+        return leagueMatches && marketMatches && dateMatches;
       }),
-    [league, market, rows]
+    [dateFilter, league, market, rows]
   );
 
   const gameGroups = useMemo(() => groupRowsByGame(filteredRows), [filteredRows]);
@@ -114,7 +116,14 @@ export function OddsBoardClient({ rows, initialMessage }: { rows: OddsBoardRow[]
           <div className="text-base font-bold text-slate-600">{isPending ? "更新中..." : `${gameGroups.length} 場比賽 / ${filteredRows.length} 筆盤口`}</div>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <label className="text-base font-black text-ink">
+            日期
+            <select className="mt-2 w-full rounded-md border border-slate-200 bg-white px-4 py-3 text-lg" value={dateFilter} onChange={(event) => setDateFilter(event.target.value as typeof dateFilter)}>
+              <option value="today">今天</option>
+              <option value="tomorrow">明天</option>
+            </select>
+          </label>
           <label className="text-base font-black text-ink">
             聯盟
             <select className="mt-2 w-full rounded-md border border-slate-200 bg-white px-4 py-3 text-lg" value={league} onChange={(event) => setLeague(event.target.value as typeof league)}>
@@ -379,4 +388,19 @@ function roundDisplay(value: number) {
 
 function formatPercent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+
+function getDateBucket(value: string): "today" | "tomorrow" | "other" {
+  const gameDate = new Date(value);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+  const dayAfterTomorrowStart = new Date(tomorrowStart);
+  dayAfterTomorrowStart.setDate(dayAfterTomorrowStart.getDate() + 1);
+
+  if (gameDate >= todayStart && gameDate < tomorrowStart) return "today";
+  if (gameDate >= tomorrowStart && gameDate < dayAfterTomorrowStart) return "tomorrow";
+  return "other";
 }
