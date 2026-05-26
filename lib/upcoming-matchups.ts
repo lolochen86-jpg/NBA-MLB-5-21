@@ -22,6 +22,7 @@ const NBA_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
 };
 const NBA_SCHEDULE_URL = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json";
+const UPCOMING_WINDOW_DAYS = 7;
 
 export async function fetchUpcomingMatchups(league: string): Promise<UpcomingMatchup[]> {
   if (league.toUpperCase() === "MLB") return fetchMlbUpcoming();
@@ -111,10 +112,15 @@ async function fetchNbaUpcomingFromScheduleLeague(): Promise<UpcomingMatchup[]> 
   const payload = await response.json();
   const games = (payload.leagueSchedule?.gameDates ?? []).flatMap((date: any) => date.games ?? []);
   const now = Date.now();
+  const windowEnd = now + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
   return games
     .filter((game: any) => Number(game.gameStatus) !== 3)
-    .filter((game: any) => Date.parse(game.gameDateTimeUTC ?? game.gameDateUTC ?? "") >= now)
+    .filter((game: any) => hasResolvedNbaTeams(game))
+    .filter((game: any) => {
+      const gameTime = Date.parse(game.gameDateTimeUTC ?? game.gameDateUTC ?? "");
+      return gameTime >= now && gameTime <= windowEnd;
+    })
     .sort((a: any, b: any) => Date.parse(a.gameDateTimeUTC ?? a.gameDateUTC ?? "") - Date.parse(b.gameDateTimeUTC ?? b.gameDateUTC ?? ""))
     .slice(0, 12)
     .map((game: any) => ({
@@ -131,6 +137,14 @@ async function fetchNbaUpcomingFromScheduleLeague(): Promise<UpcomingMatchup[]> 
       dataSource: "NBA.com CDN scheduleLeagueV2",
       seasonType: isNbaPlayoffGame(game) ? "Playoffs" : "Regular Season"
     }));
+}
+
+function hasResolvedNbaTeams(game: any) {
+  const awayId = String(game.awayTeam?.teamId ?? "");
+  const homeId = String(game.homeTeam?.teamId ?? "");
+  const awayCode = String(game.awayTeam?.teamTricode ?? "");
+  const homeCode = String(game.homeTeam?.teamTricode ?? "");
+  return Boolean(awayCode && homeCode && awayId !== "0" && homeId !== "0");
 }
 
 function isNbaPlayoffGame(game: any) {
