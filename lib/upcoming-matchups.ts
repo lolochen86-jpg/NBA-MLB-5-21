@@ -31,34 +31,43 @@ export async function fetchUpcomingMatchups(league: string): Promise<UpcomingMat
 }
 
 async function fetchMlbUpcoming(): Promise<UpcomingMatchup[]> {
-  const url = new URL("https://statsapi.mlb.com/api/v1/schedule");
-  url.searchParams.set("sportId", "1");
-  url.searchParams.set("startDate", todayIsoDate());
-  url.searchParams.set("endDate", addDaysIsoDate(5));
-  url.searchParams.set("gameTypes", "R,P");
+  const mlbToday = dateInTimeZone("America/New_York");
 
-  const response = await fetch(url, { next: { revalidate: 60 * 15 } });
-  if (!response.ok) return [];
+  for (let dayOffset = 0; dayOffset < 5; dayOffset += 1) {
+    const scheduleDate = addDaysToIsoDate(mlbToday, dayOffset);
+    const url = new URL("https://statsapi.mlb.com/api/v1/schedule");
+    url.searchParams.set("sportId", "1");
+    url.searchParams.set("date", scheduleDate);
+    url.searchParams.set("gameTypes", "R,P");
 
-  const payload = await response.json();
-  const games = (payload.dates ?? []).flatMap((date: any) => date.games ?? []);
-  return games
-    .filter((game: any) => isUpcomingStatus(game.status))
-    .slice(0, 12)
-    .map((game: any) => ({
-      id: String(game.gamePk),
-      league: "MLB",
-      gameDate: game.officialDate ?? game.gameDate,
-      awayTeam: game.teams?.away?.team?.name ?? "",
-      homeTeam: game.teams?.home?.team?.name ?? "",
-      awayAbbreviation: mlbAbbreviation(game.teams?.away?.team?.name),
-      homeAbbreviation: mlbAbbreviation(game.teams?.home?.team?.name),
-      awayExternalId: String(game.teams?.away?.team?.id ?? ""),
-      homeExternalId: String(game.teams?.home?.team?.id ?? ""),
-      status: game.status?.detailedState ?? "Scheduled",
-      dataSource: "MLB StatsAPI schedule",
-      seasonType: game.gameType === "P" ? "Playoffs" : "Regular Season"
-    }));
+    const response = await fetch(url, { next: { revalidate: 60 * 15 } });
+    if (!response.ok) continue;
+
+    const payload = await response.json();
+    const games = (payload.dates ?? []).flatMap((date: any) => date.games ?? []);
+    const activeGames = games
+      .filter((game: any) => isMlbSelectableStatus(game.status))
+      .sort((a: any, b: any) => Date.parse(a.gameDate ?? a.officialDate ?? "") - Date.parse(b.gameDate ?? b.officialDate ?? ""));
+
+    if (activeGames.length) {
+      return activeGames.slice(0, 12).map((game: any) => ({
+        id: String(game.gamePk),
+        league: "MLB",
+        gameDate: game.officialDate ?? game.gameDate,
+        awayTeam: game.teams?.away?.team?.name ?? "",
+        homeTeam: game.teams?.home?.team?.name ?? "",
+        awayAbbreviation: mlbAbbreviation(game.teams?.away?.team?.name),
+        homeAbbreviation: mlbAbbreviation(game.teams?.home?.team?.name),
+        awayExternalId: String(game.teams?.away?.team?.id ?? ""),
+        homeExternalId: String(game.teams?.home?.team?.id ?? ""),
+        status: game.status?.detailedState ?? "Scheduled",
+        dataSource: "MLB StatsAPI schedule",
+        seasonType: game.gameType === "P" ? "Playoffs" : "Regular Season"
+      }));
+    }
+  }
+
+  return [];
 }
 
 async function fetchNbaUpcoming(): Promise<UpcomingMatchup[]> {
@@ -161,6 +170,20 @@ function isUpcomingStatus(status: any) {
   return value.includes("preview") || value.includes("scheduled") || value.includes("pre-game");
 }
 
+function isMlbSelectableStatus(status: any) {
+  const value = `${status?.abstractGameState ?? ""} ${status?.detailedState ?? ""}`.toLowerCase();
+  if (value.includes("final") || value.includes("game over") || value.includes("postponed") || value.includes("cancelled")) return false;
+  return (
+    value.includes("preview") ||
+    value.includes("scheduled") ||
+    value.includes("pre-game") ||
+    value.includes("warmup") ||
+    value.includes("in progress") ||
+    value.includes("live") ||
+    value.includes("delayed")
+  );
+}
+
 function isNbaUpcomingStatus(value: unknown) {
   const text = String(value ?? "").toLowerCase();
   return text.includes("et") || text.includes("scheduled") || text.includes("pm") || text.includes("am");
@@ -172,6 +195,24 @@ function todayIsoDate() {
 
 function addDaysIsoDate(days: number) {
   const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function dateInTimeZone(timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function addDaysToIsoDate(value: string, days: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
