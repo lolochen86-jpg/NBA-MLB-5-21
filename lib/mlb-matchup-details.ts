@@ -5,12 +5,15 @@ export type MlbTeamDetail = {
   teamName: string;
   starter: PitcherDetail | null;
   bullpenEra: string | null;
+  bullpenUsage: BullpenUsageDetail | null;
   injuredHitters: InjuredHitterDetail[];
+  handednessSplit: HandednessSplitDetail | null;
 };
 
 export type PitcherDetail = {
   id: string;
   name: string;
+  pitchHand: string | null;
   era: string | null;
   whip: string | null;
   inningsPitched: string | null;
@@ -19,6 +22,17 @@ export type PitcherDetail = {
   losses: string | number | null;
   strikeOuts: string | number | null;
   baseOnBalls: string | number | null;
+};
+
+export type BullpenUsageDetail = {
+  inningsLast3Days: string;
+  inningsLast7Days: string;
+  appearancesLast3Days: number;
+  appearancesLast7Days: number;
+  pitchesLast3Days: number | null;
+  pitchesLast7Days: number | null;
+  highUseRelievers: string[];
+  note: string;
 };
 
 export type InjuredHitterDetail = {
@@ -30,6 +44,15 @@ export type InjuredHitterDetail = {
   homeRuns: string | number | null;
   rbi: string | number | null;
   atBats: string | number | null;
+};
+
+export type HandednessSplitDetail = {
+  vsLeftOps: string | null;
+  vsRightOps: string | null;
+  vsLeftAvg: string | null;
+  vsRightAvg: string | null;
+  source: string;
+  note: string;
 };
 
 type Side = "home" | "away";
@@ -74,7 +97,7 @@ async function buildTeamDetail(input: {
   side: Side;
   teamId: number;
   teamName: string;
-  probablePitcher: { id: number; fullName: string } | null;
+  probablePitcher: { id: number; fullName: string; pitchHand: string | null } | null;
   season: string;
 }): Promise<MlbTeamDetail> {
   const [starterStats, bullpenEra, injuredHitters] = await Promise.all([
@@ -82,13 +105,19 @@ async function buildTeamDetail(input: {
     fetchBullpenEra(input.teamId, input.probablePitcher?.id, input.season),
     fetchInjuredHitters(input.teamId, input.season)
   ]);
+  const [bullpenUsage, handednessSplit] = await Promise.all([
+    fetchBullpenUsage(input.teamId),
+    fetchHandednessSplit(input.teamId, input.season)
+  ]);
 
   return {
     teamId: input.teamId,
     teamName: input.teamName,
     starter: starterStats,
     bullpenEra,
-    injuredHitters
+    bullpenUsage,
+    injuredHitters,
+    handednessSplit
   };
 }
 
@@ -105,11 +134,15 @@ async function fetchProbablePitchers(gamePk: string) {
   }
 }
 
-async function fetchPitcherDetail(pitcher: { id: number; fullName: string }, season: string): Promise<PitcherDetail> {
-  const stats = await fetchPlayerStats(pitcher.id, season, "pitching");
+async function fetchPitcherDetail(pitcher: { id: number; fullName: string; pitchHand: string | null }, season: string): Promise<PitcherDetail> {
+  const [stats, pitchHand] = await Promise.all([
+    fetchPlayerStats(pitcher.id, season, "pitching"),
+    pitcher.pitchHand ? Promise.resolve(pitcher.pitchHand) : fetchPlayerPitchHand(pitcher.id)
+  ]);
   return {
     id: String(pitcher.id),
     name: pitcher.fullName,
+    pitchHand,
     era: textValue(stats.era),
     whip: textValue(stats.whip),
     inningsPitched: textValue(stats.inningsPitched),
@@ -119,6 +152,139 @@ async function fetchPitcherDetail(pitcher: { id: number; fullName: string }, sea
     strikeOuts: value(stats.strikeOuts),
     baseOnBalls: value(stats.baseOnBalls)
   };
+}
+
+async function fetchBullpenUsage(teamId: number): Promise<BullpenUsageDetail | null> {
+  try {
+    const endDate = todayIsoDate();
+    const startDate = addDaysIsoDate(-7);
+    const payload = await fetchJson(
+      `${MLB_API}/schedule?sportId=1&teamId=${teamId}&startDate=${startDate}&endDate=${endDate}&hydrate=boxscore&gameTypes=R,P`
+    );
+    const games = (payload.dates ?? [])
+      .flatMap((date: any) => date.games ?? [])
+      .filter((game: any) => isFinalGame(game));
+
+    const cutoff3 = new Date(`${addDaysIsoDate(-3)}T00:00:00.000Z`);
+    const usage = {
+      innings3: 0,
+      innings7: 0,
+      appearances3: 0,
+      appearances7: 0,
+      pitches3: 0,
+      pitches7: 0,
+      hasPitches: false,
+      relieverPitches: new Map<string, { name: string; pitches: number; appearances: number }>()
+    };
+
+    for (const game of games) {
+      const side = Number(game.teams?.home?.team?.id) === teamId ? "home" : "away";
+      const boxscore = game.boxscore ?? (game.gamePk ? await fetchGameBoxscore(game.gamePk) : null);
+      const teamBox = boxscore?.teams?.[side];
+      if (!teamBox) continue;
+      const pitcherIds = (teamBox.pitchers ?? []).map((id: any) => Number(id)).filter(Boolean);
+      const relieverIds = pitcherIds.slice(1);
+      const isLast3 = new Date(`${game.officialDate ?? game.gameDate}T00:00:00.000Z`) >= cutoff3;
+
+      for (const pitcherId of relieverIds) {
+        const player = teamBox.players?.[`ID${pitcherId}`];
+        const stat = player?.stats?.pitching ?? {};
+        const innings = inningsToNumber(stat.inningsPitched);
+        const pitches = Number(stat.pitchesThrown);
+        usage.innings7 += innings;
+        usage.appearances7 += 1;
+        if (Number.isFinite(pitches)) {
+          usage.pitches7 += pitches;
+          usage.hasPitches = true;
+        }
+        if (isLast3) {
+          usage.innings3 += innings;
+          usage.appearances3 += 1;
+          if (Number.isFinite(pitches)) usage.pitches3 += pitches;
+        }
+        if (Number.isFinite(pitches) && pitches >= 25) {
+          const key = String(pitcherId);
+          const current = usage.relieverPitches.get(key) ?? {
+            name: player?.person?.fullName ?? `#${pitcherId}`,
+            pitches: 0,
+            appearances: 0
+          };
+          current.pitches += pitches;
+          current.appearances += 1;
+          usage.relieverPitches.set(key, current);
+        }
+      }
+    }
+
+    return {
+      inningsLast3Days: usage.innings3.toFixed(1),
+      inningsLast7Days: usage.innings7.toFixed(1),
+      appearancesLast3Days: usage.appearances3,
+      appearancesLast7Days: usage.appearances7,
+      pitchesLast3Days: usage.hasPitches ? usage.pitches3 : null,
+      pitchesLast7Days: usage.hasPitches ? usage.pitches7 : null,
+      highUseRelievers: Array.from(usage.relieverPitches.values())
+        .sort((a, b) => b.pitches - a.pitches)
+        .slice(0, 3)
+        .map((reliever) => `${reliever.name} ${reliever.pitches}P/${reliever.appearances}G`),
+      note: games.length ? "最近 3/7 天非先發投手累計" : "最近 7 天沒有可用 boxscore"
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchGameBoxscore(gamePk: string | number) {
+  try {
+    return await fetchJson(`${MLB_API}/game/${gamePk}/boxscore`);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchPlayerPitchHand(playerId: number) {
+  try {
+    const payload = await fetchJson(`${MLB_API}/people/${playerId}`);
+    return textValue(payload.people?.[0]?.pitchHand?.code ?? payload.people?.[0]?.pitchHand?.description);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchHandednessSplit(teamId: number, season: string): Promise<HandednessSplitDetail | null> {
+  const [vsLeft, vsRight] = await Promise.all([
+    fetchTeamSplit(teamId, season, "vl"),
+    fetchTeamSplit(teamId, season, "vr")
+  ]);
+  if (!vsLeft && !vsRight) {
+    return {
+      vsLeftOps: null,
+      vsRightOps: null,
+      vsLeftAvg: null,
+      vsRightAvg: null,
+      source: "MLB StatsAPI statSplits",
+      note: "官方分拆資料暫時無法取得"
+    };
+  }
+  return {
+    vsLeftOps: textValue(vsLeft?.ops),
+    vsRightOps: textValue(vsRight?.ops),
+    vsLeftAvg: textValue(vsLeft?.avg),
+    vsRightAvg: textValue(vsRight?.avg),
+    source: "MLB StatsAPI statSplits",
+    note: "打線對左投 / 右投球季分拆"
+  };
+}
+
+async function fetchTeamSplit(teamId: number, season: string, sitCode: "vl" | "vr") {
+  try {
+    const payload = await fetchJson(
+      `${MLB_API}/teams/${teamId}/stats?stats=statSplits&group=hitting&season=${season}&sitCodes=${sitCode}`
+    );
+    return payload.stats?.[0]?.splits?.[0]?.stat ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchBullpenEra(teamId: number, starterId: number | undefined, season: string) {
@@ -205,7 +371,11 @@ async function fetchJson(url: string) {
 
 function pitcherFromPayload(value: any) {
   if (!value?.id) return null;
-  return { id: Number(value.id), fullName: String(value.fullName ?? "") };
+  return {
+    id: Number(value.id),
+    fullName: String(value.fullName ?? ""),
+    pitchHand: textValue(value.pitchHand?.code ?? value.pitchHand?.description)
+  };
 }
 
 function statByGroup(person: any, group: "pitching" | "hitting") {
@@ -239,6 +409,20 @@ function textValue(input: unknown) {
 function numberValue(input: unknown) {
   const number = Number(input);
   return Number.isFinite(number) ? number : 0;
+}
+
+function inningsToNumber(value: unknown) {
+  const text = String(value ?? "");
+  const [wholeText, outsText] = text.split(".");
+  const whole = Number(wholeText);
+  const outs = Number(outsText ?? 0);
+  if (!Number.isFinite(whole)) return 0;
+  return whole + (Number.isFinite(outs) ? outs / 3 : 0);
+}
+
+function isFinalGame(game: any) {
+  const status = `${game.status?.abstractGameState ?? ""} ${game.status?.detailedState ?? ""}`.toLowerCase();
+  return status.includes("final") || status.includes("completed");
 }
 
 function todayIsoDate() {

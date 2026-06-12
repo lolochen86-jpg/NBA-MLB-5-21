@@ -144,7 +144,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
             ["", upcomingResult.error ? t.unavailable : mt.manual],
             ...upcomingResult.matchups.map((matchup) => [
               matchup.id,
-              `${formatDate(matchup.gameDate, lang)} ${matchup.awayAbbreviation || matchup.awayTeam} ${teamName(matchup.awayTeam, lang)} @ ${matchup.homeAbbreviation || matchup.homeTeam} ${teamName(matchup.homeTeam, lang)}`
+              `${formatUpcomingDate(matchup.gameDate, lang)} ${matchup.awayAbbreviation || matchup.awayTeam} ${teamName(matchup.awayTeam, lang)} @ ${matchup.homeAbbreviation || matchup.homeTeam} ${teamName(matchup.homeTeam, lang)}`
             ])
           ]}
         />
@@ -763,13 +763,15 @@ function MlbDetailPanel({ details, lang }: { details: any; lang: "zh" | "en" }) 
     <section className="rounded-lg border border-sky-100 bg-white shadow-sm">
       <div className="border-b border-slate-100 px-4 py-3 text-lg font-black text-ink">{labels.title}</div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] text-left text-base">
+        <table className="w-full min-w-[1380px] text-left text-base">
           <thead className="bg-skySoft text-slate-700">
             <tr>
               <th className="px-4 py-3">{labels.team}</th>
               <th className="px-4 py-3">{labels.starter}</th>
               <th className="px-4 py-3">{labels.starterStats}</th>
               <th className="px-4 py-3">{labels.bullpenEra}</th>
+              <th className="px-4 py-3">{lang === "zh" ? "牛棚用量" : "Bullpen Usage"}</th>
+              <th className="px-4 py-3">{lang === "zh" ? "左右投拆分" : "Vs L/R Split"}</th>
               <th className="px-4 py-3">{labels.injuredHitters}</th>
             </tr>
           </thead>
@@ -777,7 +779,16 @@ function MlbDetailPanel({ details, lang }: { details: any; lang: "zh" | "en" }) 
             {rows.map((row: any) => (
               <tr key={row.teamId} className="border-t border-slate-100 align-top">
                 <td className="px-4 py-3 font-bold">{teamName(row.teamName, lang)}</td>
-                <td className="px-4 py-3">{row.starter?.name ?? labels.unavailable}</td>
+                <td className="px-4 py-3">
+                  {row.starter ? (
+                    <div>
+                      <div>{row.starter.name}</div>
+                      <div className="text-xs text-slate-500">Throws {textOrDash(row.starter.pitchHand)}</div>
+                    </div>
+                  ) : (
+                    labels.unavailable
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   {row.starter ? (
                     <div className="space-y-1">
@@ -789,6 +800,30 @@ function MlbDetailPanel({ details, lang }: { details: any; lang: "zh" | "en" }) 
                   )}
                 </td>
                 <td className="numeric px-4 py-3 text-right">{textOrDash(row.bullpenEra)}</td>
+                <td className="px-4 py-3">
+                  {row.bullpenUsage ? (
+                    <div className="space-y-1 text-sm">
+                      <div>3D IP {textOrDash(row.bullpenUsage.inningsLast3Days)} / G {textOrDash(row.bullpenUsage.appearancesLast3Days)} / P {textOrDash(row.bullpenUsage.pitchesLast3Days)}</div>
+                      <div>7D IP {textOrDash(row.bullpenUsage.inningsLast7Days)} / G {textOrDash(row.bullpenUsage.appearancesLast7Days)} / P {textOrDash(row.bullpenUsage.pitchesLast7Days)}</div>
+                      {row.bullpenUsage.highUseRelievers?.length ? (
+                        <div className="text-xs text-amber-700">{row.bullpenUsage.highUseRelievers.join(" / ")}</div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    labels.unavailable
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {row.handednessSplit ? (
+                    <div className="space-y-1 text-sm">
+                      <div>vs L AVG {textOrDash(row.handednessSplit.vsLeftAvg)} / OPS {textOrDash(row.handednessSplit.vsLeftOps)}</div>
+                      <div>vs R AVG {textOrDash(row.handednessSplit.vsRightAvg)} / OPS {textOrDash(row.handednessSplit.vsRightOps)}</div>
+                      <div className="text-xs text-slate-500">{row.handednessSplit.note}</div>
+                    </div>
+                  ) : (
+                    labels.unavailable
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   {row.injuredHitters?.length ? (
                     <div className="space-y-2">
@@ -882,6 +917,8 @@ function buildMlbPrediction(team: any, opponent: any, teamDetails: any, opponent
   const venueAverage = side === "HOME" ? numberOr(team.homeAverageScored, recentOffense) : numberOr(team.awayAverageScored, recentOffense);
   const opponentStarterEra = numberOr(opponentDetails?.starter?.era, opponentDefense);
   const opponentBullpenEra = numberOr(opponentDetails?.bullpenEra, opponentDefense);
+  const bullpenFatigue = bullpenFatigueAdjustment(opponentDetails?.bullpenUsage);
+  const handednessAdjustment = handednessSplitAdjustment(teamDetails?.handednessSplit, opponentDetails?.starter?.pitchHand);
   const injuryPenalty = Math.min(0.8, (teamDetails?.injuredHitters?.length ?? 0) * 0.25);
 
   const raw =
@@ -890,7 +927,9 @@ function buildMlbPrediction(team: any, opponent: any, teamDetails: any, opponent
     venueAverage * 0.18 +
     opponentStarterEra * 0.18 +
     opponentBullpenEra * 0.14 -
-    injuryPenalty;
+    injuryPenalty +
+    bullpenFatigue +
+    handednessAdjustment;
   const projected = clamp(roundOne(raw), 0.5, 12);
   const spread = predictionSpread(team.games, opponentDetails);
 
@@ -912,7 +951,32 @@ function predictionSpread(games: number, opponentDetails: any) {
   let spread = games >= 10 ? 1.5 : 2;
   if (!opponentDetails?.starter) spread += 0.4;
   if (!opponentDetails?.bullpenEra) spread += 0.3;
+  if (!opponentDetails?.bullpenUsage) spread += 0.2;
   return spread;
+}
+
+function bullpenFatigueAdjustment(usage: any) {
+  if (!usage) return 0;
+  const innings3 = numberOr(usage.inningsLast3Days, 0);
+  const pitches3 = numberOr(usage.pitchesLast3Days, 0);
+  const appearances3 = numberOr(usage.appearancesLast3Days, 0);
+  let adjustment = 0;
+  if (innings3 >= 10 || pitches3 >= 165 || appearances3 >= 12) adjustment += 0.35;
+  else if (innings3 >= 7 || pitches3 >= 115 || appearances3 >= 8) adjustment += 0.2;
+  if ((usage.highUseRelievers?.length ?? 0) >= 2) adjustment += 0.1;
+  return clamp(roundOne(adjustment), 0, 0.6);
+}
+
+function handednessSplitAdjustment(split: any, pitcherHand: any) {
+  if (!split || !pitcherHand) return 0;
+  const hand = String(pitcherHand).toUpperCase().startsWith("L") ? "L" : "R";
+  const ops = numberOr(hand === "L" ? split.vsLeftOps : split.vsRightOps, 0);
+  if (!ops) return 0;
+  if (ops >= 0.78) return 0.25;
+  if (ops >= 0.74) return 0.15;
+  if (ops <= 0.62) return -0.2;
+  if (ops <= 0.66) return -0.1;
+  return 0;
 }
 
 function predictionConfidence(rows: Array<{ high: number; low: number }>, details: any) {
@@ -1133,4 +1197,34 @@ function diffValues(a: number | null, b: number | null) {
 function formatDate(value: string, lang: "zh" | "en") {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(lang === "zh" ? "zh-TW" : "en-US");
+}
+
+function formatUpcomingDate(value: string, lang: "zh" | "en") {
+  const date = parseScheduleDate(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const locale = lang === "zh" ? "zh-TW" : "en-US";
+  const dateText = date.toLocaleDateString(locale, { month: "numeric", day: "numeric", weekday: "short" });
+  const todayKey = dateKeyInTimeZone(new Date(), "Asia/Taipei");
+  const gameKey = dateKeyInTimeZone(date, "Asia/Taipei");
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowKey = dateKeyInTimeZone(tomorrow, "Asia/Taipei");
+  if (gameKey === todayKey) return `${lang === "zh" ? "今天" : "Today"} ${dateText}`;
+  if (gameKey === tomorrowKey) return `${lang === "zh" ? "明天" : "Tomorrow"} ${dateText}`;
+  return dateText;
+}
+
+function parseScheduleDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00+08:00`) : new Date(value);
+}
+
+function dateKeyInTimeZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
