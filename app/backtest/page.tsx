@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { getBacktestResult, type BacktestLeague, type BacktestRow } from "@/lib/backtest";
+import {
+  getBacktestResult,
+  type BacktestDiagnosticBucket,
+  type BacktestLeague,
+  type BacktestRow
+} from "@/lib/backtest";
 import { getLang, withLang } from "@/lib/i18n";
 import { teamName } from "@/lib/team-names";
 
@@ -30,7 +35,7 @@ export default async function BacktestPage({ searchParams }: { searchParams: Pro
             <div>
               <h1 className="text-4xl font-black tracking-normal text-ink sm:text-5xl">回測紀錄</h1>
               <p className="mt-3 max-w-4xl text-lg leading-8 text-slate-600">
-                從 2026/5/1 開始，比對賽前模型預測與實際比分，並統計勝負、大小分與比分區間命中率。
+                從 2026/5/1 開始，比對賽前模型預測與實際比分，並診斷穩定度、連勝連敗、火力趨勢與大小分型態。
               </p>
             </div>
             <div className="rounded-md bg-blue-50 px-4 py-3 text-base font-black text-blue-800">
@@ -93,6 +98,36 @@ export default async function BacktestPage({ searchParams }: { searchParams: Pro
           <StatCard title="平均總分誤差" value={String(result.stats.averageTotalError)} />
         </div>
 
+        <section className="mt-6 rounded-lg border border-sky-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h2 className="text-2xl font-black text-ink">模型診斷</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                這裡用回測結果找出模型在哪些型態比較準、哪些型態容易失誤。
+              </p>
+            </div>
+            <div className="rounded-md bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800">
+              樣本太少的型態會自動排除
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-4">
+            <DiagnosticList title="勝負較準" rows={result.diagnostics.bestWinnerBuckets} metric="winner" />
+            <DiagnosticList title="勝負易錯" rows={result.diagnostics.worstWinnerBuckets} metric="winner" />
+            <DiagnosticList title="大小分較準" rows={result.diagnostics.bestTotalBuckets} metric="total" />
+            <DiagnosticList title="高誤差型態" rows={result.diagnostics.highErrorBuckets} metric="error" />
+          </div>
+
+          <div className="mt-5 rounded-lg border border-amber-100 bg-amber-50 p-4">
+            <h3 className="text-base font-black text-amber-900">目前缺少的關鍵資料</h3>
+            <ul className="mt-3 grid gap-2 text-sm leading-6 text-amber-900 lg:grid-cols-2">
+              {result.diagnostics.missingData.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
         <section className="mt-6 rounded-lg border border-sky-100 bg-white shadow-sm">
           <div className="flex flex-col gap-2 border-b border-sky-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -106,7 +141,7 @@ export default async function BacktestPage({ searchParams }: { searchParams: Pro
             </p>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[1180px] w-full text-left text-sm">
+            <table className="min-w-[1540px] w-full text-left text-sm">
               <thead className="bg-sky-50 text-slate-700">
                 <tr>
                   {[
@@ -114,14 +149,15 @@ export default async function BacktestPage({ searchParams }: { searchParams: Pro
                     "對戰",
                     "預測比分",
                     "實際比分",
-                    "預測勝方",
-                    "實際勝方",
-                    "模型線",
-                    "預測大小",
-                    "實際大小",
                     "勝負",
                     "大小分",
-                    "總分誤差"
+                    "總分誤差",
+                    "穩定度",
+                    "連勝連敗",
+                    "火力趨勢",
+                    "大小分型態",
+                    "信心",
+                    "風險"
                   ].map((header) => (
                     <th key={header} className="whitespace-nowrap px-4 py-3 font-black">
                       {header}
@@ -134,7 +170,7 @@ export default async function BacktestPage({ searchParams }: { searchParams: Pro
                   displayedRows.map((row) => <BacktestTableRow key={row.id} row={row} lang={lang} league={result.league} />)
                 ) : (
                   <tr>
-                    <td className="px-4 py-8 text-center text-base font-bold text-amber-700" colSpan={12}>
+                    <td className="px-4 py-8 text-center text-base font-bold text-amber-700" colSpan={13}>
                       目前沒有可回測的已完賽資料
                     </td>
                   </tr>
@@ -157,6 +193,36 @@ function StatCard({ title, value }: { title: string; value: string }) {
   );
 }
 
+function DiagnosticList({
+  title,
+  rows,
+  metric
+}: {
+  title: string;
+  rows: BacktestDiagnosticBucket[];
+  metric: "winner" | "total" | "error";
+}) {
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
+      <h3 className="font-black text-ink">{title}</h3>
+      <div className="mt-3 space-y-3">
+        {rows.length ? (
+          rows.map((row) => (
+            <div key={`${title}-${row.label}`} className="rounded-md bg-white p-3 shadow-sm">
+              <div className="font-bold text-slate-800">{row.label}</div>
+              <div className="numeric mt-1 text-sm text-slate-500">
+                {row.games} 場 · {metricLabel(row, metric)}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-md bg-white p-3 text-sm text-slate-500">樣本不足</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function BacktestTableRow({ row, lang, league }: { row: BacktestRow; lang: "zh" | "en"; league: BacktestLeague }) {
   return (
     <tr className="hover:bg-sky-50/60">
@@ -170,11 +236,6 @@ function BacktestTableRow({ row, lang, league }: { row: BacktestRow; lang: "zh" 
       <td className="numeric whitespace-nowrap px-4 py-3">
         {row.actualAway} - {row.actualHome}
       </td>
-      <td className="whitespace-nowrap px-4 py-3">{shortName(row.predictedWinner, lang)}</td>
-      <td className="whitespace-nowrap px-4 py-3">{shortName(row.actualWinner, lang)}</td>
-      <td className="numeric whitespace-nowrap px-4 py-3">{row.modelTotalLine}</td>
-      <td className="whitespace-nowrap px-4 py-3">{sideLabel(row.predictedTotalSide)}</td>
-      <td className="whitespace-nowrap px-4 py-3">{sideLabel(row.actualTotalSide)}</td>
       <td className="whitespace-nowrap px-4 py-3">
         <Badge ok={row.winnerCorrect} />
       </td>
@@ -182,6 +243,12 @@ function BacktestTableRow({ row, lang, league }: { row: BacktestRow; lang: "zh" 
         <Badge ok={row.totalCorrect} />
       </td>
       <td className="numeric whitespace-nowrap px-4 py-3">{row.totalError}</td>
+      <td className="whitespace-nowrap px-4 py-3">{row.volatilityLabel}</td>
+      <td className="whitespace-nowrap px-4 py-3">{row.streakLabel}</td>
+      <td className="whitespace-nowrap px-4 py-3">{row.trendLabel}</td>
+      <td className="whitespace-nowrap px-4 py-3">{row.totalLeanLabel}</td>
+      <td className="whitespace-nowrap px-4 py-3">{row.confidenceLabel}</td>
+      <td className="min-w-[220px] px-4 py-3 text-slate-600">{row.riskFlags.join("、")}</td>
     </tr>
   );
 }
@@ -194,10 +261,10 @@ function Badge({ ok }: { ok: boolean }) {
   );
 }
 
-function sideLabel(side: BacktestRow["predictedTotalSide"]) {
-  if (side === "OVER") return "大";
-  if (side === "UNDER") return "小";
-  return "走水";
+function metricLabel(row: BacktestDiagnosticBucket, metric: "winner" | "total" | "error") {
+  if (metric === "winner") return `勝負 ${row.winnerAccuracy}%`;
+  if (metric === "total") return `大小分 ${row.totalAccuracy}%`;
+  return `平均誤差 ${row.averageTotalError}`;
 }
 
 function shortName(value: string, lang: "zh" | "en") {
