@@ -64,7 +64,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
     internationalAwayBookmaker: autoInternationalOdds?.awayBookmaker,
     internationalMatchedEvent: autoInternationalOdds?.matchedEvent
   };
-  const shouldAnalyze = Boolean(params.analyze === "true" || params.upcomingGameId || params.homeTeamId || params.awayTeamId);
+  const shouldAnalyze = Boolean((params.analyze === "true" && (params.homeTeamId || params.awayTeamId)) || params.homeTeamId || params.awayTeamId);
   const usesSyntheticTeams = homeTeamId < 0 || awayTeamId < 0;
   const allowExternalSummary = params.allowExternalSummary === "true";
 
