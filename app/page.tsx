@@ -54,6 +54,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
           [t.dashboard.mlb, withLang("/matchup?league=MLB", lang), t.dashboard.mlbText],
           [t.dashboard.players, withLang("/players", lang), t.dashboard.playersText],
           ["國際盤賠率", "/odds-board", "NBA / MLB 國際盤自動轉台灣十進位格式"],
+          ["回測紀錄", withLang("/backtest", lang), "預測比分、實際比分、大小分與準確率統計"],
           [t.dashboard.downloads, withLang("/matchup?league=NBA", lang), t.dashboard.downloadsText]
         ].map(([title, href, text]) => (
           <Link key={title} href={href} className="rounded-lg border border-sky-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
