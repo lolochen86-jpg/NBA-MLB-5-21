@@ -51,10 +51,11 @@ export async function fetchCurrentSeasonGames(input: {
   season?: string | null;
   seasonType?: string | null;
   timeoutMs?: number | null;
+  startDate?: string | null;
 }) {
   const league = input.league.toUpperCase();
   if (league === "MLB") {
-    return fetchMlbCurrentSeason(input.season ?? currentMlbSeason(), input.seasonType ?? "Regular Season", input.timeoutMs ?? 8000);
+    return fetchMlbCurrentSeason(input.season ?? currentMlbSeason(), input.seasonType ?? "Regular Season", input.timeoutMs ?? 8000, input.startDate);
   }
   if (league === "NBA") {
     return fetchNbaCurrentSeason(input.season ?? currentNbaSeason(), input.seasonType ?? "Regular Season");
@@ -62,14 +63,14 @@ export async function fetchCurrentSeasonGames(input: {
   throw new Error("league 必須是 NBA 或 MLB");
 }
 
-async function fetchMlbCurrentSeason(season: string, seasonType: string, timeoutMs: number): Promise<CurrentSeasonGameRow[]> {
+async function fetchMlbCurrentSeason(season: string, seasonType: string, timeoutMs: number, startDate?: string | null): Promise<CurrentSeasonGameRow[]> {
   const fetchedAt = new Date().toISOString();
   const url = new URL("https://statsapi.mlb.com/api/v1/schedule");
   url.searchParams.set("sportId", "1");
   url.searchParams.set("season", season);
   url.searchParams.set("gameTypes", seasonType === "Playoffs" ? "P" : "R");
   url.searchParams.set("hydrate", "linescore");
-  url.searchParams.set("startDate", `${season}-03-01`);
+  url.searchParams.set("startDate", startDate ?? `${season}-03-01`);
   url.searchParams.set("endDate", todayIsoDate());
 
   const controller = new AbortController();

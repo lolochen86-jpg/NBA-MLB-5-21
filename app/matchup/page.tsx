@@ -277,7 +277,8 @@ async function getSafeExternalMlbSummary(input: {
         league: "MLB",
         season: input.season,
         seasonType: input.seasonType,
-        timeoutMs: 3500
+        timeoutMs: 3500,
+        startDate: addDaysIsoDate(-60)
       }),
       4000
     );
@@ -1217,6 +1218,12 @@ function formatUpcomingDate(value: string, lang: "zh" | "en") {
 
 function parseScheduleDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00+08:00`) : new Date(value);
+}
+
+function addDaysIsoDate(days: number) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function dateKeyInTimeZone(date: Date, timeZone: string) {
