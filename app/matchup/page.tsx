@@ -48,7 +48,7 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
   const homeTeam = teams.find((team) => team.id === homeTeamId);
   const awayTeam = teams.find((team) => team.id === awayTeamId);
   const autoInternationalOdds =
-    shouldFetchInternationalOdds(params) && homeTeam && awayTeam
+    shouldFetchInternationalOdds(params) && hasManualTeams && homeTeam && awayTeam
       ? await getSafeInternationalOdds({
           league,
           homeTeam: homeTeam.name,
