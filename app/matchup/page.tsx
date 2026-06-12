@@ -276,9 +276,10 @@ async function getSafeExternalMlbSummary(input: {
       fetchCurrentSeasonGames({
         league: "MLB",
         season: input.season,
-        seasonType: input.seasonType
+        seasonType: input.seasonType,
+        timeoutMs: 3500
       }),
-      4500
+      4000
     );
     const awaySummary = summarizeExternalMlbTeam(games, input.matchup.awayTeam, input);
     const homeSummary = summarizeExternalMlbTeam(games, input.matchup.homeTeam, input);
