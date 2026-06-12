@@ -18,7 +18,7 @@ export default async function BacktestPage({ searchParams }: { searchParams: Pro
   const league = param(params.league) ?? "MLB";
   const season = param(params.season);
   const seasonType = param(params.seasonType) ?? "Regular Season";
-  const fromDate = param(params.from) ?? "2026-05-01";
+  const fromDate = param(params.from);
   const rangeValue = param(params.rangeValue) ?? "5";
   const result = await getBacktestResult({ league, season, seasonType, fromDate, rangeValue });
   const displayedRows = result.rows.slice().reverse().slice(0, 120);
@@ -35,7 +35,7 @@ export default async function BacktestPage({ searchParams }: { searchParams: Pro
             <div>
               <h1 className="text-4xl font-black tracking-normal text-ink sm:text-5xl">回測紀錄</h1>
               <p className="mt-3 max-w-4xl text-lg leading-8 text-slate-600">
-                從 2026/5/1 開始，比對賽前模型預測與實際比分，並診斷穩定度、連勝連敗、火力趨勢與大小分型態。
+                從本季起始日開始，比對已完賽賽程的賽前模型預測與實際比分，並診斷穩定度、連勝連敗、火力趨勢與大小分型態。
               </p>
             </div>
             <div className="rounded-md bg-blue-50 px-4 py-3 text-base font-black text-blue-800">

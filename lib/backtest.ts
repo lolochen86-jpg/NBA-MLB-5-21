@@ -96,8 +96,6 @@ type Streak = {
   count: number;
 };
 
-const DEFAULT_FROM_DATE = "2026-05-01";
-
 export async function getBacktestResult(input: {
   league?: string | null;
   season?: string | null;
@@ -108,7 +106,7 @@ export async function getBacktestResult(input: {
   const league = normalizeLeague(input.league);
   const season = input.season || (league === "NBA" ? "2025-26" : "2026");
   const seasonType = input.seasonType || "Regular Season";
-  const fromDate = normalizeDate(input.fromDate) ?? DEFAULT_FROM_DATE;
+  const fromDate = normalizeDate(input.fromDate) ?? seasonStartDate(league, season, seasonType);
   const rangeValue = normalizeRange(input.rangeValue);
 
   try {
@@ -147,10 +145,10 @@ async function loadHistoricalGames(input: {
 }) {
   const dbGames = await loadDbGames(input);
   const dbBacktestGames = countGamesOnOrAfter(dbGames, input.fromDate);
-  if (dbBacktestGames > 0 && dbGames.length >= 20) {
+  if (input.league === "NBA") {
     return { games: dbGames, source: "Supabase games" };
   }
-  if (input.league === "NBA") {
+  if (dbBacktestGames >= 200) {
     return { games: dbGames, source: "Supabase games" };
   }
 
@@ -547,6 +545,16 @@ function normalizeRange(value: string | number | null | undefined) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 5;
   return Math.min(15, Math.max(3, Math.round(number)));
+}
+
+function seasonStartDate(league: BacktestLeague, season: string, seasonType: string) {
+  if (league === "MLB") {
+    return seasonType === "Playoffs" ? `${season}-10-01` : `${season}-03-01`;
+  }
+
+  const startYear = Number(season.split("-")[0]);
+  if (!Number.isFinite(startYear)) return "2025-10-01";
+  return seasonType === "Playoffs" ? `${startYear + 1}-04-01` : `${startYear}-10-01`;
 }
 
 function totalSide(total: number, line: number): TotalSide {
