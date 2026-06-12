@@ -66,9 +66,10 @@ export default async function MatchupPage({ searchParams }: { searchParams: Prom
   };
   const shouldAnalyze = Boolean(params.analyze === "true" || params.upcomingGameId || params.homeTeamId || params.awayTeamId);
   const usesSyntheticTeams = homeTeamId < 0 || awayTeamId < 0;
+  const allowExternalSummary = params.allowExternalSummary === "true";
 
   const summary: any =
-    shouldAnalyze && usesSyntheticTeams && selectedUpcoming && league === "MLB"
+    shouldAnalyze && usesSyntheticTeams && selectedUpcoming && league === "MLB" && allowExternalSummary
       ? await getSafeExternalMlbSummary({
           matchup: selectedUpcoming,
           season,
