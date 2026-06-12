@@ -164,7 +164,7 @@ async function fetchBullpenUsage(teamId: number): Promise<BullpenUsageDetail | n
     const games = (payload.dates ?? [])
       .flatMap((date: any) => date.games ?? [])
       .filter((game: any) => isFinalGame(game))
-      .slice(-4);
+      .slice(-2);
     const boxscores = await Promise.all(
       games.map(async (game: any) => ({
         gamePk: game.gamePk,
@@ -244,7 +244,7 @@ async function fetchBullpenUsage(teamId: number): Promise<BullpenUsageDetail | n
 
 async function fetchGameBoxscore(gamePk: string | number) {
   try {
-    return await fetchJson(`${MLB_API}/game/${gamePk}/boxscore`, 4000);
+    return await fetchJson(`${MLB_API}/game/${gamePk}/boxscore`, 2500);
   } catch {
     return null;
   }
@@ -288,7 +288,7 @@ async function fetchTeamSplit(teamId: number, season: string, sitCode: "vl" | "v
   try {
     const payload = await fetchJson(
       `${MLB_API}/teams/${teamId}/stats?stats=statSplits&group=hitting&season=${season}&sitCodes=${sitCode}`,
-      4000
+      2500
     );
     return payload.stats?.[0]?.splits?.[0]?.stat ?? null;
   } catch {
@@ -366,7 +366,7 @@ async function fetchPlayerStats(playerId: number, season: string, group: "pitchi
   return payload.stats?.[0]?.splits?.[0]?.stat ?? {};
 }
 
-async function fetchJson(url: string, timeoutMs = 8000) {
+async function fetchJson(url: string, timeoutMs = 2500) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {

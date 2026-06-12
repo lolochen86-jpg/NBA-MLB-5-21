@@ -236,7 +236,7 @@ async function getSafeSummary(input: Parameters<typeof getMatchupSummary>[0]) {
 
 async function getSafeMlbDetails(input: Parameters<typeof getMlbMatchupDetails>[0]) {
   try {
-    return await withTimeout(getMlbMatchupDetails(input), 2500);
+    return await withTimeout(getMlbMatchupDetails(input), 5000);
   } catch (error) {
     if (!(error instanceof Error && error.message === "Timed out")) {
       console.error("MLB matchup details unavailable", error);
