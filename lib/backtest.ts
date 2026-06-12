@@ -43,6 +43,25 @@ export type BacktestStats = {
   averageTotalError: number;
 };
 
+export type BacktestModelWeights = {
+  scored: number;
+  opponentAllowed: number;
+  venue: number;
+  leagueAverage: number;
+};
+
+export type BacktestModelRun = {
+  label: string;
+  weights: BacktestModelWeights;
+  stats: BacktestStats;
+};
+
+export type BacktestModelSuggestion = {
+  baseline: BacktestModelRun;
+  best: BacktestModelRun;
+  improvement: number;
+};
+
 export type BacktestDiagnosticBucket = {
   label: string;
   games: number;
@@ -63,6 +82,7 @@ export type BacktestResult = {
   rows: BacktestRow[];
   stats: BacktestStats;
   diagnostics: BacktestDiagnostics;
+  modelSuggestion: BacktestModelSuggestion;
   fromDate: string;
   league: BacktestLeague;
   rangeValue: number;
@@ -96,6 +116,13 @@ type Streak = {
   count: number;
 };
 
+const DEFAULT_MODEL_WEIGHTS: BacktestModelWeights = {
+  scored: 0.42,
+  opponentAllowed: 0.28,
+  venue: 0.2,
+  leagueAverage: 0.1
+};
+
 export async function getBacktestResult(input: {
   league?: string | null;
   season?: string | null;
@@ -112,11 +139,13 @@ export async function getBacktestResult(input: {
   try {
     const loaded = await loadHistoricalGames({ league, season, seasonType, fromDate });
     const rows = buildBacktestRows({ league, fromDate, rangeValue, games: loaded.games });
+    const modelSuggestion = optimizeModel({ league, fromDate, rangeValue, games: loaded.games });
 
     return {
       rows,
       stats: summarize(rows),
       diagnostics: summarizeDiagnostics(rows, league),
+      modelSuggestion,
       fromDate,
       league,
       rangeValue,
@@ -128,6 +157,7 @@ export async function getBacktestResult(input: {
       rows: [],
       stats: summarize([]),
       diagnostics: summarizeDiagnostics([], league),
+      modelSuggestion: emptyModelSuggestion(),
       fromDate,
       league,
       rangeValue,
@@ -244,12 +274,14 @@ function buildBacktestRows(input: {
   fromDate: string;
   rangeValue: number;
   games: HistoricalGame[];
+  weights?: BacktestModelWeights;
 }) {
   const from = new Date(`${input.fromDate}T00:00:00.000Z`);
   const completedGames = input.games
     .filter((game) => game.awayScoreFinal !== null && game.homeScoreFinal !== null)
     .sort((a, b) => a.gameDate.getTime() - b.gameDate.getTime());
   const leagueAverageTotal = average(completedGames.map((game) => game.awayScoreFinal + game.homeScoreFinal));
+  const weights = input.weights ?? DEFAULT_MODEL_WEIGHTS;
 
   return completedGames
     .filter((game) => game.gameDate >= from)
@@ -259,8 +291,8 @@ function buildBacktestRows(input: {
       const homeContext = teamContext(previousGames, game.homeTeam, "home", input.rangeValue);
       const awayOpponent = teamContext(previousGames, game.homeTeam, "home", input.rangeValue);
       const homeOpponent = teamContext(previousGames, game.awayTeam, "away", input.rangeValue);
-      const predictedAway = predictScore(awayContext, homeOpponent, leagueAverageTotal / 2);
-      const predictedHome = predictScore(homeContext, awayOpponent, leagueAverageTotal / 2);
+      const predictedAway = predictScore(awayContext, homeOpponent, leagueAverageTotal / 2, weights);
+      const predictedHome = predictScore(homeContext, awayOpponent, leagueAverageTotal / 2, weights);
       const modelTotalLine = buildTotalLine(awayContext, homeContext, leagueAverageTotal, input.league);
       const predictedTotal = predictedAway + predictedHome;
       const actualTotal = game.awayScoreFinal + game.homeScoreFinal;
@@ -343,11 +375,21 @@ function teamContext(games: HistoricalGame[], team: string, venue: "home" | "awa
   };
 }
 
-function predictScore(team: PredictionContext, opponent: PredictionContext, leagueAverageScore: number) {
+function predictScore(
+  team: PredictionContext,
+  opponent: PredictionContext,
+  leagueAverageScore: number,
+  weights: BacktestModelWeights
+) {
   const scored = averageOr(team.scored, leagueAverageScore);
   const opponentAllowed = averageOr(opponent.allowed, leagueAverageScore);
   const venue = averageOr(team.venueScored, scored);
-  return scored * 0.42 + opponentAllowed * 0.28 + venue * 0.2 + leagueAverageScore * 0.1;
+  return (
+    scored * weights.scored +
+    opponentAllowed * weights.opponentAllowed +
+    venue * weights.venue +
+    leagueAverageScore * weights.leagueAverage
+  );
 }
 
 function buildTotalLine(away: PredictionContext, home: PredictionContext, leagueAverageTotal: number, league: BacktestLeague) {
@@ -404,6 +446,62 @@ function summarizeDiagnostics(rows: BacktestRow[], league: BacktestLeague): Back
       "傷兵打者：目前沒有把受傷主力打者的 OPS、HR、RBI 轉成逐場打線扣分。",
       "左右投拆分：目前沒有打線對左投 / 右投的 OPS 或 wRC+，遇到特定投手型態會比較難判斷。"
     ]
+  };
+}
+
+function optimizeModel(input: {
+  league: BacktestLeague;
+  fromDate: string;
+  rangeValue: number;
+  games: HistoricalGame[];
+}): BacktestModelSuggestion {
+  const candidates: BacktestModelRun[] = modelCandidates().map((candidate) => {
+    const rows = buildBacktestRows({ ...input, weights: candidate.weights });
+    return {
+      label: candidate.label,
+      weights: candidate.weights,
+      stats: summarize(rows)
+    };
+  });
+  const baseline = candidates[0] ?? emptyModelRun("目前模型", DEFAULT_MODEL_WEIGHTS);
+  const best = candidates
+    .filter((candidate) => candidate.stats.games > 0)
+    .sort(
+      (a, b) =>
+        a.stats.averageTotalError - b.stats.averageTotalError ||
+        b.stats.winnerAccuracy - a.stats.winnerAccuracy ||
+        b.stats.totalAccuracy - a.stats.totalAccuracy
+    )[0] ?? baseline;
+
+  return {
+    baseline,
+    best,
+    improvement: roundOne(baseline.stats.averageTotalError - best.stats.averageTotalError)
+  };
+}
+
+function modelCandidates(): Array<{ label: string; weights: BacktestModelWeights }> {
+  return [
+    { label: "目前模型", weights: DEFAULT_MODEL_WEIGHTS },
+    { label: "防守加權", weights: { scored: 0.34, opponentAllowed: 0.36, venue: 0.2, leagueAverage: 0.1 } },
+    { label: "近況火力加權", weights: { scored: 0.5, opponentAllowed: 0.22, venue: 0.18, leagueAverage: 0.1 } },
+    { label: "主客場加權", weights: { scored: 0.34, opponentAllowed: 0.26, venue: 0.3, leagueAverage: 0.1 } },
+    { label: "聯盟均值保守", weights: { scored: 0.34, opponentAllowed: 0.26, venue: 0.18, leagueAverage: 0.22 } },
+    { label: "均衡模型", weights: { scored: 0.38, opponentAllowed: 0.32, venue: 0.2, leagueAverage: 0.1 } },
+    { label: "降低主客場", weights: { scored: 0.44, opponentAllowed: 0.34, venue: 0.12, leagueAverage: 0.1 } }
+  ];
+}
+
+function emptyModelSuggestion(): BacktestModelSuggestion {
+  const baseline = emptyModelRun("目前模型", DEFAULT_MODEL_WEIGHTS);
+  return { baseline, best: baseline, improvement: 0 };
+}
+
+function emptyModelRun(label: string, weights: BacktestModelWeights): BacktestModelRun {
+  return {
+    label,
+    weights,
+    stats: summarize([])
   };
 }
 

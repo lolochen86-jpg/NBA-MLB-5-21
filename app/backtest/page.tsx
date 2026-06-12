@@ -3,6 +3,7 @@ import {
   getBacktestResult,
   type BacktestDiagnosticBucket,
   type BacktestLeague,
+  type BacktestModelRun,
   type BacktestRow
 } from "@/lib/backtest";
 import { getLang, withLang } from "@/lib/i18n";
@@ -101,6 +102,24 @@ export default async function BacktestPage({ searchParams }: { searchParams: Pro
         <section className="mt-6 rounded-lg border border-sky-100 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
             <div>
+              <h2 className="text-2xl font-black text-ink">模型權重建議</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                用同一批本季完賽資料測試多組保守權重，挑出平均總分誤差最低的一組。
+              </p>
+            </div>
+            <div className="rounded-md bg-blue-50 px-4 py-2 text-sm font-bold text-blue-800">
+              誤差改善 {result.modelSuggestion.improvement}
+            </div>
+          </div>
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <ModelRunCard title="目前模型" run={result.modelSuggestion.baseline} />
+            <ModelRunCard title="建議模型" run={result.modelSuggestion.best} highlight />
+          </div>
+        </section>
+
+        <section className="mt-6 rounded-lg border border-sky-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+            <div>
               <h2 className="text-2xl font-black text-ink">模型診斷</h2>
               <p className="mt-1 text-sm text-slate-500">
                 這裡用回測結果找出模型在哪些型態比較準、哪些型態容易失誤。
@@ -189,6 +208,56 @@ function StatCard({ title, value }: { title: string; value: string }) {
     <div className="rounded-lg border border-sky-100 bg-white p-5 shadow-sm">
       <div className="text-sm font-bold text-slate-500">{title}</div>
       <div className="numeric mt-2 text-3xl font-black text-blue-700">{value}</div>
+    </div>
+  );
+}
+
+function ModelRunCard({ title, run, highlight }: { title: string; run: BacktestModelRun; highlight?: boolean }) {
+  return (
+    <div className={`rounded-lg border p-4 ${highlight ? "border-blue-200 bg-blue-50" : "border-slate-100 bg-slate-50"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-black text-ink">{title}</h3>
+          <p className="mt-1 text-sm font-bold text-slate-600">{run.label}</p>
+        </div>
+        <div className="numeric rounded-md bg-white px-3 py-2 text-sm font-black text-blue-700">
+          誤差 {run.stats.averageTotalError}
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <MiniMetric label="勝負" value={`${run.stats.winnerAccuracy}%`} />
+        <MiniMetric label="大小分" value={`${run.stats.totalAccuracy}%`} />
+        <MiniMetric label="場數" value={String(run.stats.games)} />
+      </div>
+      <div className="mt-4 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+        <WeightBar label="近期得分" value={run.weights.scored} />
+        <WeightBar label="對手失分" value={run.weights.opponentAllowed} />
+        <WeightBar label="主客場" value={run.weights.venue} />
+        <WeightBar label="聯盟均值" value={run.weights.leagueAverage} />
+      </div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-white p-3">
+      <div className="text-xs font-bold text-slate-500">{label}</div>
+      <div className="numeric mt-1 text-lg font-black text-ink">{value}</div>
+    </div>
+  );
+}
+
+function WeightBar({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <div className="flex justify-between gap-3">
+        <span className="font-bold">{label}</span>
+        <span className="numeric">{Math.round(value * 100)}%</span>
+      </div>
+      <div className="mt-1 h-2 rounded-full bg-white">
+        <div className="h-2 rounded-full bg-blue-600" style={{ width: `${Math.round(value * 100)}%` }} />
+      </div>
     </div>
   );
 }
