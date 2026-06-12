@@ -119,7 +119,8 @@ async function loadHistoricalGames(input: {
   fromDate: string;
 }) {
   const dbGames = await loadDbGames(input);
-  if (dbGames.length >= 20) {
+  const dbBacktestGames = countGamesOnOrAfter(dbGames, input.fromDate);
+  if (dbBacktestGames > 0 && dbGames.length >= 20) {
     return { games: dbGames, source: "Supabase games" };
   }
   if (input.league === "NBA") {
@@ -139,6 +140,11 @@ async function loadHistoricalGames(input: {
     return { games: externalGames, source: externalRows[0]?.dataSource ?? "External schedule API" };
   }
   return { games: dbGames, source: "Supabase games" };
+}
+
+function countGamesOnOrAfter(games: HistoricalGame[], fromDate: string) {
+  const from = new Date(`${fromDate}T00:00:00.000Z`);
+  return games.filter((game) => game.gameDate >= from).length;
 }
 
 async function loadDbGames(input: {
